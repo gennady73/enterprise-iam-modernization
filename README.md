@@ -87,13 +87,13 @@ This repository is structured to serve as both an architectural guide and an aut
 
 For detailed architectural strategies and conceptual reviews, explore the [GitHub Wiki](../../wiki) sections:
 
-1.  [**Enterprise Identity Migration: Active Directory to Red Hat IdM**](../../wiki/WIKI_ENTERPRISE_MIGRATION.md)  
+1.  [**Enterprise Identity Migration: Active Directory to Red Hat IdM**](../../wiki/WIKI_ENTERPRISE_MIGRATION)  
     *Detailed analysis of migration trade-offs, database decoupling, and why legacy synchronization models were rejected.*
-2.  [**Modernized Hybrid Identity: Active Directory and Red Hat Federation**](../../wiki/WIKI_HYBRID_IDENTITY.md)  
+2.  [**Modernized Hybrid Identity: Active Directory and Red Hat Federation**](../../wiki/WIKI_HYBRID_IDENTITY)  
     *How Keycloak (RHBK) and SSSD coordinate to bridge legacy Kerberos-based desktop authentication with modern SaaS SSO.*
-3.  [**Active Directory and Red Hat IdM Authentication Workflows**](../../wiki/WIKI_AUTHENTICATION_WORKFLOWS.md)  
+3.  [**Active Directory and Red Hat IdM Authentication Workflows**](../../wiki/WIKI_AUTHENTICATION_WORKFLOWS)  
     *Step-by-step transaction logs, Kerberos KDC referral mechanics, and browser SPNEGO flows across RHEL 9 and Windows environments.*
-4.  [**389 Directory Server Replication Recovery and Verification Playbook**](../../wiki/WIKI_DISASTER_RECOVERY.md)  
+4.  [**389 Directory Server Replication Recovery and Verification Playbook**](../../wiki/WIKI_DISASTER_RECOVERY)  
     *Detailed step-by-step procedures to deploy automated backup and restore tools, simulate replica node crashes, execute physical restorations, and resolve topology split-brains.*
 
 ---
