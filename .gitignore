@@ -3,6 +3,3 @@
 *.iml
 .vscode/
 .DS_Store
-
-# Wiki resources
-wiki/*

@@ -1,0 +1,59 @@
+name: Sync to GitHub Wiki
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'wiki/**'  # Triggers only when files inside the wiki/ directory are modified
+
+jobs:
+  sync-wiki:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Grants write permission to push changes to the repository's wiki
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Sync Wiki Files
+        env:
+          WIKI_REPO_URL: "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git"
+        run: |
+          echo "Setting up Git author configuration..."
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "Cloning GitHub Wiki repository..."
+          # Clone the separate wiki repository into a temporary workspace folder
+          git clone "$WIKI_REPO_URL" /tmp/github-wiki
+
+          echo "Cleaning up obsolete files in Wiki directory..."
+          # Delete existing files in the cloned wiki repo to ensure obsolete pages are purged,
+          # while keeping the .git directory intact.
+          find /tmp/github-wiki -mindepth 1 -not -path '*/.*' -delete
+
+          echo "Copying updated markdown documentation..."
+          # Verify local wiki folder exists, then copy its contents into the temp wiki clone
+          if [ -d "wiki" ]; then
+            cp -r wiki/* /tmp/github-wiki/
+            echo "Documentation successfully staged for commit."
+          else
+            echo "Error: Local 'wiki/' directory does not exist in the repository!"
+            exit 1
+          fi
+
+          cd /tmp/github-wiki
+
+          # Check if there are active modifications to commit
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Changes detected. Committing and pushing to Wiki master branch..."
+            git add .
+            git commit -m "docs: automated wiki sync from main repository [skip ci]"
+            # Attempt push to master or main depending on wiki's default branch configuration
+            git push origin master || git push origin main
+            echo "Wiki synchronization completed successfully."
+          else
+            echo "No changes detected. Wiki is already up-to-date. Skipping sync."
+          fi
