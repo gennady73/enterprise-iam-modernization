@@ -1,0 +1,36 @@
+---
+- name: Enroll RHEL 9 Host into Red Hat IdM Domain
+  hosts: rhel_clients
+  become: true
+  vars:
+    ipa_domain: linux.company.com
+    ipa_realm: LINUX.COMPANY.COM
+    ipa_server: idm-master.linux.company.com
+    ipa_admin_user: admin
+    ipa_admin_password: "SecureAdminPasswordSecure" # Use Ansible Vault in production
+  
+  tasks:
+    - name: Ensure firewalld permits IdM services
+      ansible.builtin.firewalld:
+        service: "{{ item }}"
+        state: enabled
+        permanent: true
+        immediate: true
+      loop:
+        - freeipa-client
+        - ldap
+        - ldaps
+
+    - name: Run FreeIPA Client Enrollment
+      ansible.builtin.import_role:
+        name: freeipa.ansible_freeipa.ipaclient
+      vars:
+        state: present
+        domain: "{{ ipa_domain }}"
+        realm: "{{ ipa_realm }}"
+        servers:
+          - "{{ ipa_server }}"
+        principal: "{{ ipa_admin_user }}"
+        password: "{{ ipa_admin_password }}"
+        mkhomedir: true
+        sssd: true

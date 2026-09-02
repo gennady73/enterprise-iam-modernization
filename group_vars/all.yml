@@ -1,0 +1,17 @@
+---
+# These Ansible variables are consumed by the templates(templates/1/sssd.conf.j2 or templates/2/sssd.conf.j2) 
+# during rollout. Place this in your repository under group_vars/all.yml.
+
+# Variables for Template 1 (Red Hat IdM + AD Trust)
+ipa_domain: linux.company.com
+ipa_realm: LINUX.COMPANY.COM
+ipa_servers:
+  - idm-master-01.linux.company.com
+  - idm-master-02.linux.company.com
+
+# Variables for Template 2 (Direct Active Directory Join)
+ad_domain: ad.company.com
+ad_domain_controllers:
+  - dc-01.ad.company.com
+  - dc-02.ad.company.com
+ad_domain_sid: "S-1-5-21-1122334455-6677889900-1122334455"

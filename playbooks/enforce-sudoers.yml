@@ -1,0 +1,21 @@
+---
+- name: Enforce Local Sudoers and Admin Access Control
+  hosts: rhel_clients
+  become: true
+  tasks:
+    - name: Ensure sssd-idp is installed for delegated federated authentication
+      ansible.builtin.dnf:
+        name: sssd-idp
+        state: present
+
+    - name: Enforce standardized sudo rule file for enterprise system administrators
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/enterprise-admins
+        content: |
+          # Managed by Ansible. Hand-off local administrative rights.
+          # Allow members of the centralized IdM Linux-Admins group full root access
+          %linux-admins@linux.company.com ALL=(ALL) ALL
+        owner: root
+        group: root
+        mode: '0440'
+        validate: '/usr/sbin/visudo -cf %s'

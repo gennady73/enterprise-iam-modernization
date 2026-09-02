@@ -1,0 +1,75 @@
+# 
+# Template 1.
+# This template is configured for the RHEL 9 clients (workstations and servers) in Phase 1. 
+# It natively joins the systems to the Red Hat IdM domain while dynamically resolving 
+# Active Directory users (such as user123@ad.company.com) via the secure Cross-Forest trust.
+#
+# It includes advanced tuning variables to optimize search response times and prevent worker thread blockage.
+# 
+
+[sssd]
+config_file_version = 2
+services = nss, pam, ssh, sudo
+# Explicitly list the target Linux domain. Subdomains (AD trust forest) are resolved dynamically.
+domains = {{ ipa_domain }}
+
+[nss]
+homedir_substring = /home
+# Performance tuning for fast dynamic system reads
+entry_negative_timeout = 15
+entry_cache_nowait_percentage = 50
+
+[pam]
+# Enable offline login capability for RHEL 9 workstations (laptops)
+offline_credentials_expiration = 30
+offline_failed_login_attempts = 3
+offline_failed_login_delay = 5
+# Timeout configurations to avoid excessive round-trips to Active Directory
+pam_id_timeout = 9
+
+[ssh]
+
+[sudo]
+
+[domain/{{ ipa_domain }}]
+# Primary Identity, Auth, and Access providers are Red Hat IdM (IPA)
+id_provider = ipa
+auth_provider = ipa
+access_provider = ipa
+chpass_provider = ipa
+sudo_provider = ipa
+
+# Core Domain Settings
+ipa_domain = {{ ipa_domain }}
+ipa_server = {{ ipa_servers | join(', _srv_, ') }}
+ipa_hostname = {{ ansible_fqdn }}
+krb5_realm = {{ ipa_realm | upper }}
+
+# Security & Encryption Settings
+krb5_store_password_if_offline = True
+cache_credentials = True
+secure_channel_req_force_strong_crypto = True
+
+# Dynamic POSIX Attribute Resolution for Active Directory Users
+subdomains_provider = ipa
+ldap_id_mapping = True
+ldap_idmap_range_size = 200000
+
+# Home Directory and Default Shell Layouts for AD Domain Users
+fallback_homedir = /home/%d/%u
+default_shell = /bin/bash
+
+# Multi-Factor & Federated Device Grant Login Integration (SSSD-IdP 2.7.0+)
+# Enables RHEL 9 GUI and console logins to prompt for Keycloak OAuth2 validation
+# If IdM has an associated external IDP mapping configured for the AD user
+ipa_hbac_support_idp = True
+
+# Advanced Performance Tuning for Active Directory Trusts
+# 1. Ignore group member enumeration on group queries for a major performance boost
+subdomain_inherit = ignore_group_members
+# 2. Disable dereference lookups to prevent heavy, slow nested LDAP calls
+ldap_deref_threshold = 0
+# 3. Increase Kerberos auth timeout to allow processing complex, large AD group memberships
+krb5_auth_timeout = 9
+# 4. Increase DNS resolver timeout in case client discovers remote AD sites first
+dns_resolver_timeout = 6

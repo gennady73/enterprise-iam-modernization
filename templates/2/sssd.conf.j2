@@ -1,0 +1,59 @@
+# 
+# Template 2.
+# This template serves as the Direct AD-Join blueprint discussed as a "midway alternative." 
+# It connects RHEL 9 systems directly to Active Directory domain controllers using realmd 
+# and SSSD, skipping IdM entirely.
+# 
+
+[sssd]
+config_file_version = 2
+services = nss, pam, ssh, sudo
+domains = {{ ad_domain }}
+
+[nss]
+homedir_substring = /home
+
+[pam]
+offline_credentials_expiration = 30
+# Timeout configurations to avoid excessive round-trips to Active Directory
+pam_id_timeout = 9
+
+[domain/{{ ad_domain }}]
+# Primary providers set to native Active Directory
+id_provider = ad
+auth_provider = ad
+access_provider = ad
+chpass_provider = ad
+
+# Core Active Directory Configuration
+ad_domain = {{ ad_domain }}
+ad_servers = {{ ad_domain_controllers | join(', ') }}
+krb5_realm = {{ ad_domain | upper }}
+cache_credentials = True
+krb5_store_password_if_offline = True
+
+# Deterministic SID Hashing
+# Ensures that user123 gets the exact same UID/GID on every Linux machine in the network
+ldap_id_mapping = True
+ldap_idmap_range_size = 200000
+ldap_idmap_default_domain_sid = {{ ad_domain_sid }}
+
+# Client-Side Shell and Home Dir Customization for AD Logins
+default_shell = /bin/bash
+fallback_homedir = /home/%u@%d
+
+# Host-Based Access Control via AD GPOs
+# SSSD parses AD GPOs directly and applies logon restrictions on RHEL 9 clients
+ad_gpo_access_control = enforcing
+ad_gpo_map_interactive = +gdm-vm, +gdm-password
+ad_gpo_map_remote_interactive = +sshd
+
+# Advanced Performance Tuning for Active Directory Trusts
+# 1. Ignore group member enumeration on group queries for a major performance boost
+subdomain_inherit = ignore_group_members
+# 2. Disable dereference lookups to prevent heavy, slow nested LDAP calls
+ldap_deref_threshold = 0
+# 3. Increase Kerberos auth timeout to allow processing complex, large AD group memberships
+krb5_auth_timeout = 9
+# 4. Increase DNS resolver timeout in case client discovers remote AD sites first
+dns_resolver_timeout = 6

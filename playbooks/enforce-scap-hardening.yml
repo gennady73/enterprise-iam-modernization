@@ -1,0 +1,43 @@
+- name: Enforce OpenSCAP Compliance and Security Hardening
+  hosts: rhel_clients
+  become: true
+  vars:
+    # Target profile: CIS Red Hat Enterprise Linux 9 Benchmark for Level 1 Workstation/Server
+    # For DISA STIG, use: xccdf_org.ssgproject.content_profile_stig
+    scap_profile: xccdf_org.ssgproject.content_profile_cis
+    scap_data_stream: /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml
+    scap_report_dir: /var/log/openscap
+    scap_report_name: "{{ inventory_hostname }}-cis-report.html"
+
+  tasks:
+    - name: Ensure OpenSCAP scanner and security guides are installed
+      ansible.builtin.dnf:
+        name:
+          - openscap-scanner
+          - scap-security-guide
+        state: present
+
+    - name: Create directory for security scan reports
+      ansible.builtin.file:
+        path: "{{ scap_report_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0750'
+
+    - name: Run OpenSCAP remediation and generate compliance report
+      ansible.builtin.command: >
+        oscap xccdf eval
+        --remediate
+        --profile {{ scap_profile }}
+        --report {{ scap_report_dir }}/{{ scap_report_name }}
+        {{ scap_data_stream }}
+      register: oscap_scan
+      # oscap returns rc 0 if compliant, rc 2 if non-compliant rules were found and remediated.
+      # Other codes represent fatal execution errors.
+      failed_when: oscap_scan.rc not in [0, 2]
+      changed_when: oscap_scan.rc == 2
+
+    - name: Print SCAP evaluation summary
+      ansible.builtin.debug:
+        msg: "Compliance scan completed. The HTML report is available at {{ scap_report_dir }}/{{ scap_report_name }}"

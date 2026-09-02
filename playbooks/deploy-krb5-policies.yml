@@ -1,0 +1,55 @@
+---
+# =============================================================================
+# Playbook Name:  deploy-krb5-policies.yml
+# Description:    Automate global, per-authentication indicator, and per-user
+#                 Kerberos ticket policies in Red Hat Identity Management (IdM).
+# Version:        1.0.0
+# Author:         Gemini Notebook
+# Requirements:   ansible-freeipa collection, inventory with [idm_masters].
+# =============================================================================
+
+- name: Deploy and Enforce Kerberos Ticket Lifecycle Policies
+  hosts: idm_masters
+  become: false
+  gather_facts: false
+  collections:
+    - freeipa.ansible_freeipa
+  vars_files:
+    - /home/admin_provisioner/MyPlaybooks/secret.yml
+  module_defaults:
+    group/freeipa.ansible_freeipa.modules:
+      ipaadmin_password: "{{ ipaadmin_password }}"
+
+  tasks:
+    - name: Ensure presence of standard global Kerberos ticket policy
+      # Configures the default baseline for all users, hosts, and services
+      ipakrbtpolicy:
+        maxlife: 43200        # 12 hours (in seconds)
+        maxrenew: 172800      # 2 days (in seconds)
+        state: present
+
+    - name: Ensure global policies per authentication indicator are configured
+      # Adjusts ticket life depending on pre-authentication indicator attached to TGT
+      ipakrbtpolicy:
+        otp_maxlife: 14400        # 4 hours (LDAP password + OTP Token)
+        otp_maxrenew: 14400       # 4 hours (LDAP password + OTP Token)
+        pkinit_maxlife: 43200     # 12 hours (Smart Card / PKINIT certificates)
+        pkinit_maxrenew: 86400    # 24 hours (Smart Card / PKINIT certificates)
+        hardened_maxlife: 86400   # 24 hours (Hardened passwords SPAKE/FAST)
+        hardened_maxrenew: 604800 # 7 days (Hardened passwords SPAKE/FAST)
+        state: present
+
+    - name: Ensure per-user override policy is configured for admin principal
+      # Individual settings override global default and indicator policies
+      ipakrbtpolicy:
+        name: admin
+        maxlife: 28800            # 8 hours (Strict window for admin user)
+        maxrenew: 86400           # 24 hours (Strict window for admin user)
+        state: present
+
+    - name: Ensure per-user OTP indicator override is configured for admin principal
+      # Restricts admin user OTP renew limits to 2 days
+      ipakrbtpolicy:
+        name: admin
+        otp_maxrenew: 172800      # 2 days
+        state: present

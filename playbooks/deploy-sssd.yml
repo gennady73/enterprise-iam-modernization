@@ -1,0 +1,32 @@
+- name: Configure and Deploy System Security Services Daemon (SSSD)
+  hosts: rhel_clients
+  become: true
+  tasks:
+    - name: Install SSSD packages
+      ansible.builtin.dnf:
+        name:
+          - sssd
+          - sssd-tools
+          - sssd-idp  # Required for Keycloak Device Auth Integration (SSSD 2.7.0+)
+        state: present
+
+    - name: Deploy sssd.conf configuration
+      ansible.builtin.template:
+        src: sssd.conf.j2
+        dest: /etc/sssd/sssd.conf
+        owner: root
+        group: root
+        mode: '0600'
+      notify: Restart SSSD
+
+    - name: Enable SSSD service
+      ansible.builtin.systemd:
+        name: sssd
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart SSSD
+      ansible.builtin.systemd:
+        name: sssd
+        state: restarted
