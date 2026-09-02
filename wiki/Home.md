@@ -1,4 +1,4 @@
-# 🚀 DevOps Onboarding & Deployment Roadmap: Active Directory to Red Hat IdM
+# DevOps Onboarding & Deployment Roadmap: Active Directory to Red Hat IdM
 
 Welcome to the **Enterprise IAM Modernization Blueprint** workspace. This Wiki home page serves as our master chronological deployment guide, onboarding manual, and operational map.
 
@@ -6,9 +6,9 @@ To help you get up to speed quickly, this document is structured as a **DevOps F
 
 ---
 
-## 🏗️ The Decoupled Target Architecture
+## The Decoupled Target Architecture
 
-Our blueprint decouples secure infrastructure-level OS accounts from application-level Single Sign-On (SSO) credentials. This design eliminates single points of failure, administrative overlap, and synchronization lag across our 150–300 server footprint.
+Our blueprint decouples secure infrastructure-level OS accounts from application-level Single Sign-On (SSO) credentials. This design eliminates single points of failure, administrative overlap, and synchronization lag across a several hundreds workstations\servers footprint.
 
 ```
                     +------------------------------------+
@@ -34,7 +34,7 @@ Our blueprint decouples secure infrastructure-level OS accounts from application
 
 ---
 
-## 🗺️ Chronological Deployment Journey
+## Chronological Deployment Journey
 
 ```
   [Strategic Alignment]       [Infrastructure Setup]         [Forest Bridging]
@@ -60,8 +60,8 @@ Our blueprint decouples secure infrastructure-level OS accounts from application
 *   **Aha! Moment (The Native Trust Solution)**:
     By moving to a Cross-Forest Kerberos Trust, we treat Active Directory as the absolute, single source of truth for passwords, with **zero database replication or password synchronization**. SSSD (System Security Services Daemon) on the Linux clients dynamically resolves AD SIDs on the fly using secure cross-realm referrals, leaving our AD Domain Controllers completely untouched and stable.
 *   **Deep-Dive Guides**:
-    *   📖 Read [**Enterprise Identity Migration Strategy**](WIKI_ENTERPRISE_MIGRATION.md) to explore the technical reasons why Active Directory database-level synchronization was deprecated and removed in RHEL 9.
-    *   📖 Read [**Modernized Hybrid Identity & Federation**](WIKI_HYBRID_IDENTITY.md) to analyze how SSSD coordinates with the Red Hat build of Keycloak (RHBK) to bridge legacy Kerberos logins with web-based application single sign-on.
+    *   📖 Read [**Enterprise Identity Migration Strategy**](WIKI_ENTERPRISE_MIGRATION) to explore the technical reasons why Active Directory database-level synchronization was deprecated and removed in RHEL 9.
+    *   📖 Read [**Modernized Hybrid Identity & Federation**](WIKI_HYBRID_IDENTITY) to analyze how SSSD coordinates with the Red Hat build of Keycloak (RHBK) to bridge legacy Kerberos logins with web-based application single sign-on.
 
 ---
 
@@ -107,7 +107,7 @@ Our blueprint decouples secure infrastructure-level OS accounts from application
         ldap_deref_threshold = 0
         ```
 *   **Deep-Dive Guides**:
-    *   📖 Read [**Active Directory and Red Hat IdM Authentication Workflows**](WIKI_AUTHENTICATION_WORKFLOWS.md) to trace the exact network-level Kerberos transaction logs and KDC referral steps.
+    *   📖 Read [**Active Directory and Red Hat IdM Authentication Workflows**](WIKI_AUTHENTICATION_WORKFLOWS) to trace the exact network-level Kerberos transaction logs and KDC referral steps.
     *   🛠️ Refer to the code-locked [**Advanced SSSD Configuration Blueprints**](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SSSD_TEMPLATES.md) in our repository to deploy these high-performance caching and tuning configurations.
 
 ---
@@ -130,11 +130,11 @@ Our blueprint decouples secure infrastructure-level OS accounts from application
 *   **Struggle Warning (Changelog Purge Expirations)**:
     If a replication master host falls offline and is restored using a backup that is older than the replication **changelog purge window** (typically 7 days), it will be blocked from rejoining the topology and throw `OutOfSync` errors. The other suppliers have already cleaned up the change history required to sync the host. You must resolve this by executing a master supplier-initiated online Suffix Re-initialization over the network.
 *   **Implementation Guide**:
-    *   📖 Read [**Disaster Recovery, Backups, & Replication Rebuilds**](WIKI_DISASTER_RECOVERY.md) to deploy the automated `ds389-backup-manager.sh` and `ds389-restore-manager.sh` scripts, simulate replica failures, and run split-brain audits.
+    *   📖 Read [**Disaster Recovery, Backups, & Replication Rebuilds**](WIKI_DISASTER_RECOVERY) to deploy the automated `ds389-backup-manager.sh` and `ds389-restore-manager.sh` scripts, simulate replica failures, and run split-brain audits.
 
 ---
 
-## 🤝 Project Navigation Map
+## Project Navigation Map
 
 To keep our automation and documentation perfectly aligned, we separate our resources based on their lifecycle:
 
@@ -143,8 +143,8 @@ To keep our automation and documentation perfectly aligned, we separate our reso
 
 | Phase 1 Focus Area | Strategic Wiki Resource | Technical Repository Code-Adjacent Resource |
 | :--- | :--- | :--- |
-| **Strategy & Sizing** | 📖 [Migration Strategy](WIKI_ENTERPRISE_MIGRATION.md) | 🛠️ [Installation Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/INSTALLATION_GUIDE.md) |
-| **Forest Trust Link** | 📖 [Federation Architecture](WIKI_HYBRID_IDENTITY.md) | 🛠️ [Trust Management Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/HYBRID_TRUST_MANAGEMENT.md) |
-| **Client Tuning** | 📖 [Authentication Workflows](WIKI_AUTHENTICATION_WORKFLOWS.md) | 🛠️ [SSSD Blueprints](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SSSD_TEMPLATES.md) |
+| **Strategy & Sizing** | 📖 [Migration Strategy](WIKI_ENTERPRISE_MIGRATION) | 🛠️ [Installation Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/INSTALLATION_GUIDE) |
+| **Forest Trust Link** | 📖 [Federation Architecture](WIKI_HYBRID_IDENTITY) | 🛠️ [Trust Management Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/HYBRID_TRUST_MANAGEMENT.md) |
+| **Client Tuning** | 📖 [Authentication Workflows](WIKI_AUTHENTICATION_WORKFLOWS) | 🛠️ [SSSD Blueprints](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SSSD_TEMPLATES.md) |
 | **Security Hardening** | — | 🛠️ [Kerberos & KDC Policies](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/KERBEROS_LIFECYCLE.md) |
-| **Disaster Resilience** | 📖 [Replication Recovery Playbook](WIKI_DISASTER_RECOVERY.md) | — |
+| **Disaster Resilience** | 📖 [Replication Recovery Playbook](WIKI_DISASTER_RECOVERY) | — |
