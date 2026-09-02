@@ -1,6 +1,6 @@
 # Enterprise IAM Modernization Blueprint: Active Directory to Red Hat IdM/Keycloak
 
-This repository provides a production-ready, production-validated blueprint for migrating an enterprise network (a several hundreds workstations/servers) from a legacy Microsoft Active Directory (AD) infrastructure to a modern, decoupled Linux-native Identity and Access Management (IAM) framework.
+This repository provides a blueprint for migrating an enterprise network (a several hundreds of workstations/servers) from a legacy Microsoft Active Directory (AD) infrastructure to a modern, decoupled Linux-native Identity and Access Management (IAM) framework.
 
 The architecture is built entirely on **Red Hat Enterprise Linux 9 (RHEL 9)** components - specifically **Red Hat Identity Management (IdM)** and **Red Hat build of Keycloak (RHBK)** - or their upstream open-source equivalents (**FreeIPA** and **Keycloak**).
 
@@ -57,28 +57,35 @@ This repository is structured to serve as both an architectural guide and an aut
 
 ```
 .
-├── README.md                      # This entry point (latest: README.md)
-├── hosts.ini                      # Standardized Ansible Inventory for Infrastructure Deployment
-├── playbooks/                     # Ansible Playbooks for enrollment & hardening
-│   ├── deploy-ad-trust.yml        # Automated cross-forest trust setup
-│   ├── enroll-idm-client.yml      # Automated RHEL 9 IdM domain join
-│   ├── enforce-sudoers.yml        # Restructuring local sudo/admin rights
-│   └── enforce-scap-hardening.yml # Enforcing security baselines on workstations/servers
-└── wiki/                          # Detailed architecture guides (GitHub Wiki)
-    ├── WIKI_ENTERPRISE_MIGRATION.md
-    ├── WIKI_HYBRID_IDENTITY.md
-    ├── WIKI_AUTHENTICATION_WORKFLOWS.md
-    ├── WIKI_HYBRID_TRUST_MANAGEMENT.md         # Updated trust, playbooks & monitoring
-    ├── WIKI_INSTALLATION_GUIDE.md              # Updated IdM & ds389 step-by-step with Satellite context
-    ├── WIKI_DISASTER_RECOVERY.md               # Replication recovery and verification playbook with script guides
-    └── WIKI_KERBEROS_EXTERNAL_AND_LIFECYCLE.md # Configuring external Kerberos systems and KDC ticket policies
+├── README.md                             # This repository homepage (and main roadmap)
+├── hosts.ini                             # Standardized Ansible Inventory for Infrastructure Deployment
+├── playbooks/                            # Ansible Playbooks for enrollment & hardening
+│   ├── deploy-ad-trust.yml               # Automated cross-forest trust setup
+│   ├── deploy-krb5-policies.yml          # Centrally managing KDC ticket policies
+│   ├── enroll-idm-client.yml             # Automated RHEL 9 IdM domain join
+│   ├── enforce-sudoers.yml               # Restructuring local sudo/admin rights
+│   └── enforce-scap-hardening.yml        # Enforcing security baselines on workstations/servers
+├── scripts/                              # Custom automated backup/restore/trust scripts
+│   ├── ds389-backup-manager.sh           # Non-disruptive hot backup utility
+│   ├── ds389-restore-manager.sh          # Physical and logical database recovery utility
+│   └── setup-ssh-trust.sh                # One-pass key propagation engine
+└── docs/                                 # Code-locked Technical Guides
+    ├── INSTALLATION_GUIDE.md             # Standard OS setup, Satellite, and umask configs
+    ├── HYBRID_TRUST_MANAGEMENT.md        # AD Trust playbooks, Samba configs, RPC port mappings
+    ├── SSSD_TEMPLATES.md                 # Highly tuned Jinja2 sssd.conf templates & variables
+    └── KERBEROS_LIFECYCLE.md             # External hosts setup, KDC ticket policies & playbooks
+└── wiki/                                 # Detailed architecture guides (GitHub Wiki)
+    ├── WIKI_AUTHENTICATION_WORKFLOWS.md  # Technical workings of SSSD's ldap_id_mapping setting
+    ├── WIKI_DISASTER_RECOVERY.md         # Replication recovery and verification playbook 
+    ├── WIKI_ENTERPRISE_MIGRATION.md      # Explains the migration reasoning
+    └── WIKI_HYBRID_IDENTITY.md           # Keycloak (RHBK) and SSSD coordination
 ```
 
 ---
 
-## Deep-Dive Architecture Wiki
+## Deep-Dive Architecture Wiki & Documentation Suite
 
-For detailed technical designs, configuration templates, and operational steps, explore our [wiki](../../wiki) pages:
+For detailed architectural strategies and conceptual reviews, explore the [GitHub Wiki](../../wiki) sections:
 
 1.  [**Enterprise Identity Migration: Active Directory to Red Hat IdM**](../../wiki/WIKI_ENTERPRISE_MIGRATION.md)  
     *Detailed analysis of migration trade-offs, database decoupling, and why legacy synchronization models were rejected.*
@@ -86,14 +93,23 @@ For detailed technical designs, configuration templates, and operational steps, 
     *How Keycloak (RHBK) and SSSD coordinate to bridge legacy Kerberos-based desktop authentication with modern SaaS SSO.*
 3.  [**Active Directory and Red Hat IdM Authentication Workflows**](../../wiki/WIKI_AUTHENTICATION_WORKFLOWS.md)  
     *Step-by-step transaction logs, Kerberos KDC referral mechanics, and browser SPNEGO flows across RHEL 9 and Windows environments.*
-4.  [**Hybrid Identity Management via Active Directory and IdM Trust**](../../wiki/WIKI_HYBRID_TRUST_MANAGEMENT.md)  
-    *Step-by-step administration guides for trust creation, AD decommissioning steps, and Ansible templates replacing Windows GPOs.*
-5.  [**Red Hat Identity Management (IdM) and 389 Directory Server Installation Guide**](../../wiki/WIKI_INSTALLATION_GUIDE.md)  
-    *Detailed step-by-step deploy instructions for both directory server tiers, including Red Hat Satellite repo syncing, umask rules, installation prompts, and FIPS compliance constraints.*
-6.  [**389 Directory Server Replication Recovery and Verification Playbook**](../../wiki/WIKI_DISASTER_RECOVERY.md)  
-    *Detailed step-by-step procedures to deploy automated backup and restore tools, simulate an active replica node crash, execute an automated physical restoration using custom restore utilities, and safely rejoin the multi-supplier topology.*
-7.  [**Configuring External Kerberos and Managing KDC Ticket Policies**](../../wiki/WIKI_KERBEROS_EXTERNAL_AND_LIFECYCLE.md)  
-    *Detailed step-by-step procedures for configuring external (non-enrolled) systems to use IdM Kerberos, and managing global and per-user ticket lifecycles and renewal policies on the IdM KDC.*
+4.  [**389 Directory Server Replication Recovery and Verification Playbook**](../../wiki/WIKI_DISASTER_RECOVERY.md)  
+    *Detailed step-by-step procedures to deploy automated backup and restore tools, simulate replica node crashes, execute physical restorations, and resolve topology split-brains.*
+
+---
+
+## Code-Locked Technical Guides (`/docs` Directory)
+
+For active step-by-step operational instructions and configuration templates, view the files locally in the `/docs` folder:
+
+5.  [**Red Hat Identity Management (IdM) and 389 Directory Server Installation Guide**](docs/INSTALLATION_GUIDE.md)  
+    *Detailed deployment instructions, including Red Hat Satellite repo syncing, umask rules, installation prompts, and FIPS mode overrides.*
+6.  [**Hybrid Identity Management via Active Directory and IdM Trust**](docs/HYBRID_TRUST_MANAGEMENT.md)  
+    *Step-by-step administration guides for trust creation, Samba port lockdowns, AD decommissioning, and GPO replacement playbooks.*
+7.  [**Advanced SSSD Configuration Blueprints**](docs/SSSD_TEMPLATES.md)  
+    *Production-grade sssd.conf templates featuring RAM-cached SSSD databases (tmpfs) and low-latency nested group settings.*
+8.  [**Configuring External System Kerberos and Managing KDC Ticket Policies**](docs/KERBEROS_LIFECYCLE.md)  
+    *Guides to bridge external hosts, administer KDC ticket lifetimes, deploy indicator-based (MFA) policies, and run verification audits.*
 
 ---
 
@@ -110,7 +126,7 @@ Before deploying the playbooks, ensure your environment meets these core infrast
 
 ---
 
-## Official Reference Documentation
+## 🔗 Official Reference Documentation
 
 To explore specific product features and low-level settings, refer directly to the official vendor documentation:
 
