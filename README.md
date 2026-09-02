@@ -78,21 +78,21 @@ This repository is structured to serve as both an architectural guide and an aut
 
 ## Deep-Dive Architecture Wiki
 
-For detailed technical designs, configuration templates, and operational steps, explore our wiki pages:
+For detailed technical designs, configuration templates, and operational steps, explore our [wiki](/wiki) pages:
 
-1.  [**Enterprise Identity Migration: Active Directory to Red Hat IdM**](WIKI_ENTERPRISE_MIGRATION.md)  
+1.  [**Enterprise Identity Migration: Active Directory to Red Hat IdM**](/wiki/WIKI_ENTERPRISE_MIGRATION.md)  
     *Detailed analysis of migration trade-offs, database decoupling, and why legacy synchronization models were rejected.*
-2.  [**Modernized Hybrid Identity: Active Directory and Red Hat Federation**](WIKI_HYBRID_IDENTITY.md)  
+2.  [**Modernized Hybrid Identity: Active Directory and Red Hat Federation**](/wiki/WIKI_HYBRID_IDENTITY.md)  
     *How Keycloak (RHBK) and SSSD coordinate to bridge legacy Kerberos-based desktop authentication with modern SaaS SSO.*
-3.  [**Active Directory and Red Hat IdM Authentication Workflows**](WIKI_AUTHENTICATION_WORKFLOWS.md)  
+3.  [**Active Directory and Red Hat IdM Authentication Workflows**](/wiki/WIKI_AUTHENTICATION_WORKFLOWS.md)  
     *Step-by-step transaction logs, Kerberos KDC referral mechanics, and browser SPNEGO flows across RHEL 9 and Windows environments.*
-4.  [**Hybrid Identity Management via Active Directory and IdM Trust**](WIKI_HYBRID_TRUST_MANAGEMENT.md)  
+4.  [**Hybrid Identity Management via Active Directory and IdM Trust**](/wiki/WIKI_HYBRID_TRUST_MANAGEMENT.md)  
     *Step-by-step administration guides for trust creation, AD decommissioning steps, and Ansible templates replacing Windows GPOs.*
-5.  [**Red Hat Identity Management (IdM) and 389 Directory Server Installation Guide**](WIKI_INSTALLATION_GUIDE.md)  
+5.  [**Red Hat Identity Management (IdM) and 389 Directory Server Installation Guide**](/wiki/WIKI_INSTALLATION_GUIDE.md)  
     *Detailed step-by-step deploy instructions for both directory server tiers, including Red Hat Satellite repo syncing, umask rules, installation prompts, and FIPS compliance constraints.*
-6.  [**389 Directory Server Replication Recovery and Verification Playbook**](WIKI_DISASTER_RECOVERY.md)  
+6.  [**389 Directory Server Replication Recovery and Verification Playbook**](/wiki/WIKI_DISASTER_RECOVERY.md)  
     *Detailed step-by-step procedures to deploy automated backup and restore tools, simulate an active replica node crash, execute an automated physical restoration using custom restore utilities, and safely rejoin the multi-supplier topology.*
-7.  [**Configuring External Kerberos and Managing KDC Ticket Policies**](WIKI_KERBEROS_EXTERNAL_AND_LIFECYCLE.md)  
+7.  [**Configuring External Kerberos and Managing KDC Ticket Policies**](/wiki/WIKI_KERBEROS_EXTERNAL_AND_LIFECYCLE.md)  
     *Detailed step-by-step procedures for configuring external (non-enrolled) systems to use IdM Kerberos, and managing global and per-user ticket lifecycles and renewal policies on the IdM KDC.*
 
 ---
