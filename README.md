@@ -1,8 +1,8 @@
-# Enterprise IAM Modernization Blueprint: Active Directory to Red Hat IdM/Keycloak
+# Enterprise IAM Modernization Blueprint: Active Directory to Red Hat IdM/Keycloak (Version 12)
 
-This repository provides a blueprint for migrating an enterprise network (a several hundreds of workstations/servers) from a legacy Microsoft Active Directory (AD) infrastructure to a modern, decoupled Linux-native Identity and Access Management (IAM) framework.
+This repository provides a production-ready, production-validated blueprint for migrating an enterprise network (150–300 workstations/servers) from a legacy Microsoft Active Directory (AD) infrastructure to a modern, decoupled Linux-native Identity and Access Management (IAM) framework.
 
-The architecture is built entirely on **Red Hat Enterprise Linux 9 (RHEL 9)** components - specifically **Red Hat Identity Management (IdM)** and **Red Hat build of Keycloak (RHBK)** - or their upstream open-source equivalents (**FreeIPA** and **Keycloak**).
+The architecture is built entirely on **Red Hat Enterprise Linux 9 (RHEL 9)** components—specifically **Red Hat Identity Management (IdM)** and **Red Hat build of Keycloak (RHBK)**—or their upstream open-source equivalents (**FreeIPA** and **Keycloak**).
 
 ---
 
@@ -44,10 +44,10 @@ To avoid "synchronization hell" (fragile LDAP synchronization pipelines, passwor
 *   **The Trust Scaffold**: Configure a one-way **Cross-Forest Kerberos Trust** where IdM trusts Active Directory. Linux clients resolve AD identities on the fly via SSSD with zero password synchronization or data replication.
 *   **Modern Federation**: Deploy Keycloak (RHBK) as the single sign-on (SSO) provider, federating user identity directly from AD and IdM.
 
-### Phase 2: Pure Linux Target State (Sunset)
-*   **Decommission AD**: As Windows clients are gradually converted to RHEL 9, move remaining administrative accounts directly into the IdM directory.
-*   **Tear Down the Scaffold**: Disconnect the Cross-Forest Trust and power down the AD Domain Controllers.
-*   **Pure Target State**: Operate a lightweight, high-performance, unified IAM stack managed entirely by Red Hat IdM (using the high-performance embedded 389 Directory Server engine) and Keycloak (RHBK).
+### Phase 2: Pure Linux Target State & Open-Source AD Replacement (Sunset / Plan B)
+*   **In-Place AD Replica Join**: Join Samba 4 AD DC (Rocky Linux 9 with containerized MIT Kerberos builds) as a replica controller to copy LDAP data, Kerberos keys, and SIDs natively without client rejoins or profile breaks.
+*   **Promote & Decommission**: Transfer FSMO roles to Samba AD DCs, re-point IdM trust forwarders, and power down Microsoft AD DCs.
+*   **Greenfield Plan B**: Alternatively deploy Samba 4 AD DC as a standalone open-source AD infrastructure for environments with zero Microsoft AD history.
 
 ---
 
@@ -57,43 +57,39 @@ This repository is structured to serve as both an architectural guide and an aut
 
 ```
 .
-├── README.md                             # This repository homepage (and main roadmap)
-├── hosts.ini                             # Standardized Ansible Inventory for Infrastructure Deployment
-├── playbooks/                            # Ansible Playbooks for enrollment & hardening
-│   ├── deploy-ad-trust.yml               # Automated cross-forest trust setup
-│   ├── deploy-krb5-policies.yml          # Centrally managing KDC ticket policies
-│   ├── enroll-idm-client.yml             # Automated RHEL 9 IdM domain join
-│   ├── enforce-sudoers.yml               # Restructuring local sudo/admin rights
-│   └── enforce-scap-hardening.yml        # Enforcing security baselines on workstations/servers
-├── scripts/                              # Custom automated backup/restore/trust scripts
-│   ├── ds389-backup-manager.sh           # Non-disruptive hot backup utility
-│   ├── ds389-restore-manager.sh          # Physical and logical database recovery utility
-│   └── setup-ssh-trust.sh                # One-pass key propagation engine
-└── docs/                                 # Code-locked Technical Guides
-    ├── INSTALLATION_GUIDE.md             # Standard OS setup, Satellite, and umask configs
-    ├── HYBRID_TRUST_MANAGEMENT.md        # AD Trust playbooks, Samba configs, RPC port mappings
-    ├── SSSD_TEMPLATES.md                 # Highly tuned Jinja2 sssd.conf templates & variables
-    └── KERBEROS_LIFECYCLE.md             # External hosts setup, KDC ticket policies & playbooks
-└── wiki/                                 # Detailed architecture guides (GitHub Wiki)
-    ├── WIKI_AUTHENTICATION_WORKFLOWS.md  # Technical workings of SSSD's ldap_id_mapping setting
-    ├── WIKI_DISASTER_RECOVERY.md         # Replication recovery and verification playbook 
-    ├── WIKI_ENTERPRISE_MIGRATION.md      # Explains the migration reasoning
-    └── WIKI_HYBRID_IDENTITY.md           # Keycloak (RHBK) and SSSD coordination
+├── README.md                     # This repository homepage (and main roadmap)
+├── hosts.ini                         # Standardized Ansible Inventory for Infrastructure Deployment
+├── playbooks/                        # Ansible Playbooks for enrollment & hardening
+│   ├── deploy-ad-trust.yml           # Automated cross-forest trust setup
+│   ├── deploy-krb5-policies.yml      # Centrally managing KDC ticket policies
+│   ├── enroll-idm-client.yml         # Automated RHEL 9 IdM domain join
+│   ├── enforce-sudoers.yml           # Restructuring local sudo/admin rights
+│   └── enforce-scap-hardening.yml    # Enforcing security baselines on workstations/servers
+├── scripts/                          # Custom automated backup/restore/trust scripts
+│   ├── ds389-backup-manager.sh       # Non-disruptive hot backup utility
+│   ├── ds389-restore-manager.sh      # Physical and logical database recovery utility
+│   └── setup-ssh-trust.sh            # One-pass key propagation engine
+└── docs/                             # Code-locked Technical Guides
+    ├── INSTALLATION_GUIDE.md         # Standard OS setup, Satellite, and umask configs
+    ├── HYBRID_TRUST_MANAGEMENT.md    # AD Trust playbooks, Samba configs, RPC port mappings
+    ├── SSSD_TEMPLATES.md             # Highly tuned Jinja2 sssd.conf templates & variables
+    ├── KERBEROS_LIFECYCLE.md         # External hosts setup, KDC ticket policies & playbooks
+    └── SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md # Dual-track guide for containerized RPM builds, Plan B & Phase 2 AD replacement
 ```
 
 ---
 
 ## Deep-Dive Architecture Wiki & Documentation Suite
 
-For detailed architectural strategies and conceptual reviews, explore the [GitHub Wiki](../../wiki) sections:
+For detailed architectural strategies and conceptual reviews, explore our GitHub Wiki sections utilizing the relative wiki mapping:
 
-1.  [**Enterprise Identity Migration: Active Directory to Red Hat IdM**](../../wiki/WIKI_ENTERPRISE_MIGRATION)  
+1.  [**Enterprise Identity Migration: Active Directory to Red Hat IdM**](../../wiki/WIKI_ENTERPRISE_MIGRATION.md)  
     *Detailed analysis of migration trade-offs, database decoupling, and why legacy synchronization models were rejected.*
-2.  [**Modernized Hybrid Identity: Active Directory and Red Hat Federation**](../../wiki/WIKI_HYBRID_IDENTITY)  
+2.  [**Modernized Hybrid Identity: Active Directory and Red Hat Federation**](../../wiki/WIKI_HYBRID_IDENTITY.md)  
     *How Keycloak (RHBK) and SSSD coordinate to bridge legacy Kerberos-based desktop authentication with modern SaaS SSO.*
-3.  [**Active Directory and Red Hat IdM Authentication Workflows**](../../wiki/WIKI_AUTHENTICATION_WORKFLOWS)  
+3.  [**Active Directory and Red Hat IdM Authentication Workflows**](../../wiki/WIKI_AUTHENTICATION_WORKFLOWS.md)  
     *Step-by-step transaction logs, Kerberos KDC referral mechanics, and browser SPNEGO flows across RHEL 9 and Windows environments.*
-4.  [**389 Directory Server Replication Recovery and Verification Playbook**](../../wiki/WIKI_DISASTER_RECOVERY)  
+4.  [**389 Directory Server Replication Recovery and Verification Playbook**](../../wiki/WIKI_DISASTER_RECOVERY.md)  
     *Detailed step-by-step procedures to deploy automated backup and restore tools, simulate replica node crashes, execute physical restorations, and resolve topology split-brains.*
 
 ---
@@ -110,10 +106,14 @@ For active step-by-step operational instructions and configuration templates, vi
     *Production-grade sssd.conf templates featuring RAM-cached SSSD databases (tmpfs) and low-latency nested group settings.*
 8.  [**Configuring External System Kerberos and Managing KDC Ticket Policies**](docs/KERBEROS_LIFECYCLE.md)  
     *Guides to bridge external hosts, administer KDC ticket lifetimes, deploy indicator-based (MFA) policies, and run verification audits.*
+9.  [**Samba 4 Active Directory Domain Controller (Samba AD DC) Technical Implementation Guide**](docs/SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md)  
+    *Comprehensive dual-track guide for containerized RPM builds, greenfield "Plan B" deployment, and Phase 2 in-place Active Directory replacement.*
+10. [**Samba 4 AD DC Architectural Proposal & Decision Framework**](docs/samba-ad-dc-architecture-proposal.md)  
+    *Approved architectural proposal, risk mitigation strategy, and pre-empted technical objection matrix for sunsetting Microsoft AD.*
 
 ---
 
-## Prerequisites & System Requirements
+## ⚡ Prerequisites & System Requirements
 
 Before deploying the playbooks, ensure your environment meets these core infrastructure requirements:
 

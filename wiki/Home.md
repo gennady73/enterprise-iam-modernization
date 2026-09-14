@@ -1,8 +1,8 @@
-# DevOps Onboarding & Deployment Roadmap: Active Directory to Red Hat IdM
+# DevOps Onboarding & Deployment Roadmap: Active Directory to Red Hat IdM & Samba AD DC
 
 Welcome to the **Enterprise IAM Modernization Blueprint** workspace. This Wiki home page serves as our master chronological deployment guide, onboarding manual, and operational map.
 
-To help you get up to speed quickly, this document is structured as a **DevOps Field Journal**. Rather than presenting dry, encyclopedic configuration dumps, we trace the chronological path of implementing **Phase 1 (The Coexistence Core)**. Each step covers the high-level objectives, underlying technical concepts, and—most importantly—real-world **Struggle Warnings** ("When you hit the wall") and **Aha! Moments** compiled by our engineering team during deployment.
+To help you get up to speed quickly, this document is structured as a **DevOps Field Journal**. Rather than presenting dry, encyclopedic configuration dumps, we trace the chronological path of implementing **Phase 1 (The Coexistence Core)** through **Phase 2 (Open-Source Active Directory Replacement)**. Each step covers the high-level objectives, underlying technical concepts, and—most importantly—real-world **Struggle Warnings** ("When you hit the wall") and **Aha! Moments** compiled by our engineering team during deployment.
 
 ---
 
@@ -43,10 +43,10 @@ Our blueprint decouples secure infrastructure-level OS accounts from application
   (Migration Strategy)         (RHEL Satellite/umask)       (Samba Port Lockdowns)
                                                                      ||
                                                                      v
-  [Security Hardening]        [Client Integration]         [Performance Tuning]
-        Step 6                      Step 5                       Step 4
-  Advanced KDC Policies  <===  Client Enrollment   <====   sssd.conf Cache Tuning
-  (MFA/OTP Ticket Lifes)       (Ansible Playbooks)         (tmpfs Memory Mounts)
+  [Pure Open-Source State]    [Security Hardening]        [Client Integration]         [Performance Tuning]
+        Step 7                      Step 6                      Step 5                       Step 4
+  Samba 4 AD DC / Sunset <===  Advanced KDC Policies  <===  Client Enrollment   <====   sssd.conf Cache Tuning
+  (Plan B / In-Place Join)     (MFA/OTP Ticket Lifes)       (Ansible Playbooks)         (tmpfs Memory Mounts)
 ```
 
 ---
@@ -134,6 +134,21 @@ Our blueprint decouples secure infrastructure-level OS accounts from application
 
 ---
 
+### 📍 Step 7: Phase 2 Active Directory Sunset & Samba 4 AD DC Migration (Plan B)
+*   **Objective**: Complete the transition to a 100% open-source IAM stack by replacing Microsoft Active Directory with Samba 4 AD DCs on Rocky Linux 9, or deploy a standalone open-source AD domain for new projects with zero Microsoft AD history (Plan B).
+*   **The Technical Concept**: 
+    Compiling Samba 4 AD DC against MIT Kerberos headers inside an isolated **Podman container** to keep production hosts clean, joining Samba AD as an in-place replica controller to copy user credentials and SIDs natively without client desktop profile breaks, promoting FSMO roles, replicating SysVol using stateful `rsync -XAavz` with systemd timers to protect POSIX NTACLs, and brokering Windows certificate auto-enrollment via Red Hat IdM Dogtag ACME/`cepces` proxies.
+*   **Struggle Warning (Packaging & CSync2 Traps)**:
+    1.  **RHEL Samba AD DC Block**: Red Hat disables AD DC roles in default Samba RPMs. Compiling directly on production servers bloats host attack surfaces. We resolve this via containerized Podman builds that output clean RPMs.
+    2.  **CSync2 SQLite Locks**: CSync2 SQLite database drift causes split-brain replication locks during concurrent GPO edits, and its symmetric pre-shared key presents single-point-of-failure risks. We resolve this by enforcing unidirectional **rsync over SSH** with explicit `-XA` metadata flags.
+*   **Aha! Moment (Zero-Downtime Replica Join)**:
+    By joining Samba 4 AD DC directly as a replica node in the active forest (`samba-tool domain join`), Samba replicates all LDAP objects, password hashes, and Domain SIDs over native AD protocols. Windows workstations continue authenticating without needing domain re-joins or desktop profile resets when Microsoft AD DCs are powered down.
+*   **Implementation Guides**:
+    *   🛠️ Refer to the code-locked [**Samba 4 AD DC Technical Implementation Guide**](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md) in our repository for containerized RPM build steps, Track A greenfield setup, and Track B Phase 2 migration runbooks.
+    *   📖 Refer to the [**Samba 4 AD DC Architectural Proposal**](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/samba-ad-dc-architecture-proposal.md) for the approved decision framework and pre-empted technical objection matrix.
+
+---
+
 ## Project Navigation Map
 
 To keep our automation and documentation perfectly aligned, we separate our resources based on their lifecycle:
@@ -146,5 +161,6 @@ To keep our automation and documentation perfectly aligned, we separate our reso
 | **Strategy & Sizing** | 📖 [Migration Strategy](WIKI_ENTERPRISE_MIGRATION) | 🛠️ [Installation Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/INSTALLATION_GUIDE.md) |
 | **Forest Trust Link** | 📖 [Federation Architecture](WIKI_HYBRID_IDENTITY) | 🛠️ [Trust Management Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/HYBRID_TRUST_MANAGEMENT.md) |
 | **Client Tuning** | 📖 [Authentication Workflows](WIKI_AUTHENTICATION_WORKFLOWS) | 🛠️ [SSSD Blueprints](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SSSD_TEMPLATES.md) |
-| **Security Hardening** | - | 🛠️ [Kerberos & KDC Policies](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/KERBEROS_LIFECYCLE.md) |
-| **Disaster Resilience** | 📖 [Replication Recovery Playbook](WIKI_DISASTER_RECOVERY) | - |
+| **Security Hardening** | — | 🛠️ [Kerberos & KDC Policies](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/KERBEROS_LIFECYCLE.md) |
+| **Disaster Resilience** | 📖 [Replication Recovery Playbook](WIKI_DISASTER_RECOVERY) | — |
+| **Phase 2 / AD Replacement** | 📖 [Samba AD Architecture Proposal](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/samba-ad-dc-architecture-proposal.md) | 🛠️ [Samba 4 AD DC Implementation Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md) |
