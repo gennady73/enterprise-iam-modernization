@@ -1,6 +1,6 @@
-# Enterprise IAM Modernization Blueprint: Active Directory to Red Hat IdM/Keycloak (Version 12)
+# Enterprise IAM Modernization Blueprint: Active Directory to Red Hat IdM/Keycloak
 
-This repository provides a production-ready, production-validated blueprint for migrating an enterprise network (150–300 workstations/servers) from a legacy Microsoft Active Directory (AD) infrastructure to a modern, decoupled Linux-native Identity and Access Management (IAM) framework.
+This repository provides a production-ready, production-validated blueprint for migrating an enterprise network (a several hundreds workstations/servers) from a legacy Microsoft Active Directory (AD) infrastructure to a modern, decoupled Linux-native Identity and Access Management (IAM) framework.
 
 The architecture is built entirely on **Red Hat Enterprise Linux 9 (RHEL 9)** components—specifically **Red Hat Identity Management (IdM)** and **Red Hat build of Keycloak (RHBK)**—or their upstream open-source equivalents (**FreeIPA** and **Keycloak**).
 
@@ -34,18 +34,23 @@ The target architecture decouples secure infrastructure-level accounts from appl
 
 ---
 
-## Phased Migration Strategy
+## Phased Migration Strategy and Validation Roadmap
 
-To avoid "synchronization hell" (fragile LDAP synchronization pipelines, password interceptor DLLs, and LSASS instability), this project implements a **Scaffolded Sunset** strategy.
+To avoid "synchronization hell" (fragile LDAP synchronization pipelines, password interceptor DLLs, and LSASS instability), this project implements a **POC-Validated Scaffolded Sunset** strategy.
+
+### Phase 0: Isolated POC Sandbox & Complex GPO Validation Gate (Mandatory Gate)
+*   **Sandbox Isolation**: Stand up an isolated test Samba 4 AD DC (`BIND9_DLZ`) in a sandbox VLAN with zero route to production AD.
+*   **GPO Ingestion**: Export production GPOs and ingest them into the sandbox Samba `SysVol` (`/var/lib/samba/sysvol/`).
+*   **Developer Workstation Benchmark**: Validate that complex GPOs (including those required for Windows internals/kernel developers) parse and apply 100% cleanly on test Windows workstations (`gpresult /h`, Event ID 1501).
 
 ### Phase 1: The Dual-Core Scaffold (Coexistence)
-*   **The AD Core**: Retain a minimal, low-cost Microsoft AD footprint (e.g., two small Domain Controller VMs) to natively manage the remaining 20% of Windows clients (workstations and servers).
+*   **The AD Core**: Retain a minimal, low-cost Microsoft AD footprint (or Samba AD DC) to natively manage Windows clients.
 *   **The Linux Core**: Stand up Red Hat IdM as a clean Linux infrastructure directory. Join RHEL 9 servers and workstations directly.
 *   **The Trust Scaffold**: Configure a one-way **Cross-Forest Kerberos Trust** where IdM trusts Active Directory. Linux clients resolve AD identities on the fly via SSSD with zero password synchronization or data replication.
 *   **Modern Federation**: Deploy Keycloak (RHBK) as the single sign-on (SSO) provider, federating user identity directly from AD and IdM.
 
 ### Phase 2: Pure Linux Target State & Open-Source AD Replacement (Sunset / Plan B)
-*   **In-Place AD Replica Join**: Join Samba 4 AD DC (Rocky Linux 9 with containerized MIT Kerberos builds) as a replica controller to copy LDAP data, Kerberos keys, and SIDs natively without client rejoins or profile breaks.
+*   **In-Place AD Replica Join**: Join Samba 4 AD DC (Rocky Linux 9 with containerized MIT Kerberos builds) as a replica controller to copy LDAP data, Kerberos keys, and SIDs natively without client rejoins or desktop profile resets.
 *   **Promote & Decommission**: Transfer FSMO roles to Samba AD DCs, re-point IdM trust forwarders, and power down Microsoft AD DCs.
 *   **Greenfield Plan B**: Alternatively deploy Samba 4 AD DC as a standalone open-source AD infrastructure for environments with zero Microsoft AD history.
 
@@ -74,7 +79,7 @@ This repository is structured to serve as both an architectural guide and an aut
     ├── HYBRID_TRUST_MANAGEMENT.md    # AD Trust playbooks, Samba configs, RPC port mappings
     ├── SSSD_TEMPLATES.md             # Highly tuned Jinja2 sssd.conf templates & variables
     ├── KERBEROS_LIFECYCLE.md         # External hosts setup, KDC ticket policies & playbooks
-    └── SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md # Dual-track guide for containerized RPM builds, Plan B & Phase 2 AD replacement
+    └── SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md # Dual-track guide covering Phase 0 POC, Greenfield "Plan B" & Phase 2 AD replacement
 ```
 
 ---
@@ -107,13 +112,11 @@ For active step-by-step operational instructions and configuration templates, vi
 8.  [**Configuring External System Kerberos and Managing KDC Ticket Policies**](docs/KERBEROS_LIFECYCLE.md)  
     *Guides to bridge external hosts, administer KDC ticket lifetimes, deploy indicator-based (MFA) policies, and run verification audits.*
 9.  [**Samba 4 Active Directory Domain Controller (Samba AD DC) Technical Implementation Guide**](docs/SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md)  
-    *Comprehensive dual-track guide for containerized RPM builds, greenfield "Plan B" deployment, and Phase 2 in-place Active Directory replacement.*
-10. [**Samba 4 AD DC Architectural Proposal & Decision Framework**](docs/samba-ad-dc-architecture-proposal.md)  
-    *Approved architectural proposal, risk mitigation strategy, and pre-empted technical objection matrix for sunsetting Microsoft AD.*
+    *Comprehensive dual-track guide for Phase 0 POC sandbox validation, containerized RPM builds, greenfield "Plan B" deployment, and Phase 2 in-place Active Directory replacement.*
 
 ---
 
-## ⚡ Prerequisites & System Requirements
+## Prerequisites & System Requirements
 
 Before deploying the playbooks, ensure your environment meets these core infrastructure requirements:
 
