@@ -1,9 +1,8 @@
 # Samba 4 Active Directory Domain Controller (Samba AD DC) Technical Implementation Guide
 
 **Document Target**: Engineering, DevOps, and Security Architecture Teams  
-**Scope**: Sandbox POC Validation, Greenfield "Plan B" Deployment & Phase 2 Active Directory Migration  
-**Base OS**: Rocky Linux 9 (RHEL 9 Binary Compatible)  
-**Status**: Production-Ready Technical Runbook & Validation Framework  
+**Scope**: Sandbox POC Validation, Greenfield Deployment & Active Directory Migration  
+**Base OS**: Red Hat Enterprise Linux 9 / Rocky Linux 9 / UBI 9  
 
 ---
 
@@ -11,7 +10,7 @@
 
 Before executing deployment tracks, it is essential to understand the **Decoupled Policy Architecture** when Microsoft Active Directory is replaced by Samba 4 AD DC and Red Hat Identity Management (IdM).
 
-```
+```text
                       DECOUPLED POLICY ARCHITECTURE
                       
   [ Admin PAW ] --( GPMC / SMB3 )--> [ Samba-AD DC ]
@@ -29,8 +28,18 @@ Before executing deployment tracks, it is essential to understand the **Decouple
 ### How Windows GPOs Work on Samba AD DC
 1. **Zero Translation on Server Side**: Samba AD DC acts purely as a standard LDAP directory and SMB3 file server. It does **not** convert, interpret, or translate Windows Group Policies.
 2. **Server Storage (`SysVol`)**: When an administrator creates or edits a GPO using the standard Group Policy Management Console (GPMC) on a Tier-0 Privileged Access Workstation (PAW), GPMC writes LDAP metadata to Samba and uploads raw policy files (`Registry.pol`, `.admx` templates, scripts) directly to the `SysVol` SMB share (`/var/lib/samba/sysvol/`). Samba preserves Windows security descriptors using Linux **POSIX Extended Attributes (`security.NTACL`)**.
-3. **Client-Side Execution Engine**: Windows workstations query LDAP over ports 389/636, discover linked GPOs, download policy hives over SMB3, and parse/apply the settings locally into `HKLM`/`HKCU` using native Windows **Client-Side Extensions (CSEs)**.
+3. **Client-Side Execution Engine**: Windows workstations query LDAP over ports 389/636, discover linked GPOs, download policy hives over SMB3, and parse/apply settings locally into `HKLM`/`HKCU` using native Windows **Client-Side Extensions (CSEs)**.
 4. **Linux Policy Separation**: Linux workstations and servers do **not** use Windows GPOs. Linux host configuration, security baselines (OpenSCAP CIS), and local limits are managed natively via **Ansible Playbooks** and **Red Hat IdM** (Host-Based Access Control / sudoers).
+
+---
+
+## Package Availability & Source Build Reference
+
+This implementation guide assumes that pre-compiled, verified **Samba 4 AD DC RPM packages** (`samba-ad-dc-4.24.7-1.el9.x86_64.rpm`) are hosted in your enterprise YUM/DNF repository or Red Hat Satellite instance.
+
+> **Custom RHEL 9 Compilation Reference**:  
+> Red Hat Enterprise Linux 9 omits native `samba-dc` packages from standard AppStream repositories. If your organization needs to compile custom Samba 4 binaries against RHEL 9's system MIT Kerberos headers (`--with-system-mitkrb5 --with-experimental-mit-ad-dc`) and package them into custom RPMs using UBI 9 container test harnesses, refer to the standalone guide:  
+> **[Samba 4 AD DC RPM Build & Container Verification Guide (`SAMBA_RPM_BUILD_GUIDE.md`)](SAMBA_RPM_BUILD_GUIDE.md)**.
 
 ---
 
@@ -38,7 +47,7 @@ Before executing deployment tracks, it is essential to understand the **Decouple
 
 The non-negotiable **Phase 0 Gate** requires standing up an isolated sandbox environment to prove that Samba 4 AD DC ingests, serves, and enforces our enterprise's most complex existing Windows GPOs—especially those required for Windows internals/kernel developers—without error.
 
-```
+```text
                       PHASE 0 POC SANDBOX ARCHITECTURE
                       
   +-------------------------------------------------------------------+
@@ -69,14 +78,23 @@ Get-GPOReport -All -ReportType HTML -Path "C:\GPO_Backups\Production_GPO_Report.
 ```
 
 ### Step 2: Standing Up the Sandbox Samba-AD DC
-On an isolated Rocky Linux 9 VM (`192.168.100.10`), provision a sandbox domain matching your domain structure:
+On an isolated RHEL 9 / Rocky Linux 9 VM (`192.168.100.10`), install the pre-built RPM packages and provision a sandbox domain:
 
 ```bash
+# Install Samba AD DC RPMs via dnf
+sudo dnf install -y samba-ad-dc krb5-server bind bind-utils python3-dns python3-markdown
+
 # Clean existing configs
 rm -f /etc/samba/smb.conf /etc/krb5.conf
 
 # Provision sandbox domain
-samba-tool domain provision     --server-role=dc     --use-rfc2307     --dns-backend=BIND9_DLZ     --realm=AD.COMPANY.COM     --domain=AD     --adminpass='PocP@ssw0rd2026!'
+samba-tool domain provision \
+    --server-role=dc \
+    --use-rfc2307 \
+    --dns-backend=BIND9_DLZ \
+    --realm=AD.COMPANY.COM \
+    --domain=AD \
+    --adminpass='PocP@ssw0rd2026!'
 
 # Start services
 cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
@@ -111,44 +129,6 @@ Join a test Windows developer workstation to the sandbox Samba AD DC and execute
    * **Event ID 1501**: Group Policy processing completed successfully with zero errors.
    * **Event ID 7016/7017**: Confirm all Client-Side Extensions (Registry, Security, Administrative Templates) completed in under 1000ms.
 
-**Phase 0 Gate Approval**: If `gpresult` shows 100% policy application matching `Production_GPO_Report.html` and Event ID 1501 reports zero errors, the POC is officially approved to proceed to deployment.
-
----
-
-## 1. Containerized RPM Compilation Pipeline (Podman)
-
-Red Hat Enterprise Linux and Rocky Linux 9 disable AD DC capabilities in default OS Samba packages due to Heimdal vs. MIT Kerberos dependencies. To maintain host security without installing compilers or IDEs on production Domain Controllers, compile custom Samba RPMs against MIT Kerberos inside an isolated Podman container.
-
-### A. Build Container Specification (`Dockerfile.samba-build`)
-```dockerfile
-FROM rockylinux:9
-
-RUN dnf install -y \
-    gcc make python3-devel flex bison \
-    krb5-devel libacl-devel libattr-devel \
-    openldap-devel pam-devel gnutls-devel \
-    libxml2-devel libxslt-devel bind-devel \
-    rpm-build rsync git && \
-    dnf clean all
-
-WORKDIR /build
-```
-
-### B. Build Execution & Packaging
-```bash
-# Spin up the build container and compile Samba AD DC RPMs against MIT Kerberos
-$ podman build -t samba-ad-builder -f Dockerfile.samba-build .
-$ podman run --rm -v $(pwd)/output:/build/output samba-ad-builder bash -c "
-    git clone --depth 1 https://git.samba.org/samba.git && \
-    cd samba && \
-    ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var \
-                --with-system-mitkrb5 --enable-fhs && \
-    make -j\$(nproc) && \
-    make rpm && \
-    cp *.rpm /build/output/
-"
-```
-
 ---
 
 ## 2. Track A: Greenfield "Plan B" Implementation
@@ -163,8 +143,8 @@ Follow this track when deploying a brand-new Linux-native IAM infrastructure for
 
 Open mandatory firewall ports:
 ```bash
-# firewall-cmd --permanent --add-port={53/tcp,53/udp,88/tcp,88/udp,135/tcp,389/tcp,389/udp,445/tcp,464/tcp,464/udp,636/tcp,3268/tcp,3269/tcp}
-# firewall-cmd --reload
+firewall-cmd --permanent --add-port={53/tcp,53/udp,88/tcp,88/udp,135/tcp,389/tcp,389/udp,445/tcp,464/tcp,464/udp,636/tcp,3268/tcp,3269/tcp}
+firewall-cmd --reload
 ```
 
 ### B. BIND9 DLZ Dynamic DNS Configuration
@@ -184,8 +164,8 @@ plugin {
 
 ### C. Provisioning the Domain
 ```bash
-# rm -f /etc/samba/smb.conf /etc/krb5.conf
-# samba-tool domain provision \
+rm -f /etc/samba/smb.conf /etc/krb5.conf
+samba-tool domain provision \
     --server-role=dc \
     --use-rfc2307 \
     --dns-backend=BIND9_DLZ \
@@ -193,8 +173,8 @@ plugin {
     --domain=AD \
     --adminpass='SecureP@ssw0rd2026!'
 
-# cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
-# systemctl enable --now named samba
+cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
+systemctl enable --now named samba
 ```
 
 ---
@@ -203,7 +183,7 @@ plugin {
 
 Follow this track when migrating an existing Active Directory domain from Microsoft Windows Server Domain Controllers to Samba 4 AD DCs after Phase 0 POC approval.
 
-```
+```text
                     IN-PLACE REPLICA MIGRATION FLOW
                     
   [ Windows DC-01 ] --( DRS Replica Join )--> [ Samba DC-01 ]
@@ -226,7 +206,7 @@ dcdiag /test:DNS /v
 Joining Samba directly to the existing Active Directory domain replicates the directory database, SID history, user credentials, and machine accounts. **Because the Domain SID is unchanged, local user desktop profiles on Windows clients are preserved without requiring domain re-joins.**
 
 ```bash
-# samba-tool domain join ad.company.com DC \
+samba-tool domain join ad.company.com DC \
     -U "AD\Administrator" \
     --password='WindowsAdminPassword!' \
     --dns-backend=BIND9_DLZ
@@ -234,14 +214,14 @@ Joining Samba directly to the existing Active Directory domain replicates the di
 
 Verify replication status across all directory partitions:
 ```bash
-# samba-tool drs showrepl
+samba-tool drs showrepl
 ```
 
 ### Step 3: FSMO Role Transfer
 Transfer all five FSMO roles to the new Samba AD DC:
 ```bash
-# samba-tool fsmo transfer --role=all -U "AD\Administrator"
-# samba-tool fsmo show
+samba-tool fsmo transfer --role=all -U "AD\Administrator"
+samba-tool fsmo show
 ```
 
 ### Step 4: Stateful SysVol Replication (Rsync over SSH)
@@ -276,8 +256,8 @@ WantedBy=timers.target
 ### Step 5: Red Hat IdM Trust Re-Pointing
 Update the DNS forwarders on your Red Hat IdM master nodes to target the new Samba AD DCs:
 ```bash
-# ipa dnsforwardzone-mod ad.company.com --forwarder=192.168.1.10 --forwarder=192.168.1.11
-# ipa trust-show ad.company.com
+ipa dnsforwardzone-mod ad.company.com --forwarder=192.168.1.10 --forwarder=192.168.1.11
+ipa trust-show ad.company.com
 ```
 
 ### Step 6: Windows Server Decommissioning
@@ -293,11 +273,15 @@ Gracefully demote and power down the legacy Microsoft Windows Domain Controllers
 ### A. Windows Certificate Auto-Enrollment (IdM + ACME / `cepces`)
 Replace Active Directory Certificate Services (AD CS) by leveraging Red Hat IdM's integrated **Dogtag CA** and Tomcat ACME responder:
 ```bash
-# ipa-acme-manage enable
+ipa-acme-manage enable
 ```
 On Windows clients, deploy an automated background scheduled task running *win-acme* pointing to `https://idm-master-01.linux.company.com/acme/directory`.
 
-### B. Zero-Trust Administrative Governance (GPMC on Tier-0 PAWs)
+### B. Directory Server High Availability & Replication Reference
+For high availability and multi-supplier replication across Red Hat Directory Server (RHDS 12 / 389ds) application stores, conflict resolution mechanics (CSN timestamp evaluation hierarchy, glue entries), and `dsctl` vs `systemctl` operational controls, refer to:  
+**[Red Hat Directory Server Advanced Replication & Conflict Operations Guide (`RHDS_ADVANCED_REPLICATION_GUIDE.md`)](RHDS_ADVANCED_REPLICATION_GUIDE.md)**.
+
+### C. Zero-Trust Administrative Governance (GPMC on Tier-0 PAWs)
 * **Never** install the Group Policy Management Console (GPMC) on standard employee laptops.
 * Deploy GPMC on an isolated **Tier-0 Privileged Access Workstation (PAW)** virtual machine.
 * Require administrators to authenticate via **Keycloak (RHBK) Multi-Factor Authentication (OTP)** to access an ephemeral HTML5 jump session (e.g., Apache Guacamole) to run GPMC.
@@ -310,23 +294,26 @@ Execute these validation commands to confirm cluster health:
 
 ```bash
 # 1. Verify DNS SRV Record Resolution
-$ dig _kerberos._tcp.ad.company.com SRV
-$ dig _ldap._tcp.dc._msdcs.ad.company.com SRV
+dig _kerberos._tcp.ad.company.com SRV
+dig _ldap._tcp.dc._msdcs.ad.company.com SRV
 
 # 2. Test Kerberos Ticket Granting Ticket (TGT) Issuance
-$ kinit Administrator@AD.COMPANY.COM
-$ klist
+kinit Administrator@AD.COMPANY.COM
+klist
 
 # 3. Test Samba LDAP Query
-$ ldapsearch -H ldap://dc-01.ad.company.com -Y GSSAPI -b "dc=ad,dc=company,dc=com" "(objectClass=user)" sAMAccountName
+ldapsearch -H ldap://dc-01.ad.company.com -Y GSSAPI -b "dc=ad,dc=company,dc=com" "(objectClass=user)" sAMAccountName
 
 # 4. Audit Cross-Forest Trust from RHEL IdM
-$ ipa user-show user123@ad.company.com
+ipa user-show user123@ad.company.com
 ```
 
 ---
 
-## 🔗 Related Documentation & References
-* [Samba AD DC Official Setup Guide](https://wiki.samba.org/index.php/Setting_up_Samba_as_an_Active_Directory_Domain_Controller)
-* [Samba BIND9 DLZ Configuration](https://wiki.samba.org/index.php/BIND9_DLZ_DNS_Back_End)
-* [Red Hat Enterprise Linux 9: Identity Management Planning](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html-single/planning_identity_management/index)
+## 6. Document Map & Related Guides
+
+| Document | Description |
+| :--- | :--- |
+| **`SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md`** | Main active directory migration, Phase 0 GPO gate, and deployment runbook. |
+| **`SAMBA_RPM_BUILD_GUIDE.md`** | Custom Samba 4 RPM compilation for RHEL 9 against system MIT Kerberos and Podman UBI-9 test harness. |
+| **`RHDS_ADVANCED_REPLICATION_GUIDE.md`** | 389 Directory Server multi-supplier replication setup, CSN 4-part conflict resolution mechanics, and audit tooling. |

@@ -72,8 +72,9 @@ Our blueprint decouples secure infrastructure-level OS accounts from application
 
 ### 📍 Step 2: Standing Up the Directory Cores
 *   **Objective**: Deploy our primary Red Hat IdM master server (`idm-master-01.linux.company.com`) and standalone application Directory Server (`host-a.company.com`).
-*   **Implementation Guide**:
+*   **Implementation Guides**:
     *   Refer to the code-locked [**IdM and 389-ds Installation Guide**](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/INSTALLATION_GUIDE.md)
+    *   Refer to the [**RHDS 12 / 389ds Advanced Multi-Supplier Replication Guide**](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/RHDS_ADVANCED_REPLICATION_GUIDE.md)
 
 ---
 
@@ -100,20 +101,23 @@ Our blueprint decouples secure infrastructure-level OS accounts from application
 
 ### 📍 Step 6: Day-2 Resilience (Backups & Disaster Recovery)
 *   **Objective**: Ensure directory system availability, run simulated node failures, and recover multi-supplier databases.
-*   **Implementation Guide**:
-    *   📖 Read [**Disaster Recovery, Backups, & Replication Rebuilds**](WIKI_DISASTER_RECOVERY)
+*   **Implementation Guides**:
+    *   📖 Read [**Disaster Recovery, Backups, & Replication Rebuilds**](WIKI_DISASTER_RECOVERY.md)
+    *   Refer to the [**RHDS 12 / 389ds Advanced Multi-Supplier Replication Guide**](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/RHDS_ADVANCED_REPLICATION_GUIDE.md)
 
 ---
 
 ### 📍 Step 7: Phase 2 Active Directory Sunset & Samba 4 AD DC Migration (Plan B)
-*   **Objective**: Complete the transition to a 100% open-source IAM stack by replacing Microsoft AD with Samba 4 AD DCs on Rocky Linux 9 (or deploy a standalone open-source AD domain for greenfield projects).
+*   **Objective**: Complete the transition to a 100% open-source IAM stack by replacing Microsoft AD with Samba 4 AD DCs on RHEL 9 / Rocky Linux 9 (or deploy a standalone open-source AD domain for greenfield projects).
 *   **The Technical Concept**: 
-    1. **Containerized Build**: Compile Samba 4 AD DC against MIT Kerberos development headers inside a Podman container to produce clean, signed RPMs.
+    1. **Containerized RPM Build**: Obtain pre-compiled binaries from the `/rpm` directory or build custom Samba 4.24+ RPMs against MIT Kerberos using the standalone [`samba-rpm-build-rhel9`](https://github.com/gennady73/samba-rpm-build-rhel9) repository.
     2. **In-Place Replica Join**: Join Samba directly to the active forest (`samba-tool domain join`) to replicate LDAP database, user credentials, and Domain SIDs natively without client desktop profile resets.
     3. **SysVol Synchronization**: Deploy a unidirectional **rsync over SSH** wrapper run by systemd timers (`rsync -XAavz --delete`) to replicate GPOs while preserving mandatory POSIX Extended Attributes (`security.NTACL`).
     4. **PKI Auto-Enrollment**: Enable Tomcat ACME responders on IdM (Dogtag CA) and deploy `cepces` proxies for Windows machine certificate auto-enrollment without Microsoft AD CS.
-*   **Implementation Guide**:
-    *   🛠️ Refer to the code-locked [**Samba 4 AD DC Technical Implementation Guide**](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md)
+*   **Implementation Guides**:
+    * Refer to [**Samba 4 AD DC Technical Implementation Guide**](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md)
+    * Refer to [**Standalone Custom Samba 4 AD DC RPM Build Guide**](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SAMBA_RPM_BUILD_GUIDE.md)
+    *   🔗 External Repository: [`samba-rpm-build-rhel9` on GitHub](https://github.com/gennady73/samba-rpm-build-rhel9)
 
 ---
 
@@ -122,9 +126,9 @@ Our blueprint decouples secure infrastructure-level OS accounts from application
 | Phase / Focus Area | Strategic Wiki Resource | Technical Repository Code-Adjacent Resource |
 | :--- | :--- | :--- |
 | **Phase 0: Sandbox POC** | — | 🛠️ [Samba 4 AD DC Implementation Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md) |
-| **Phase 1: Strategy** | 📖 [Migration Strategy](WIKI_ENTERPRISE_MIGRATION) | 🛠️ [Installation Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/INSTALLATION_GUIDE.md) |
-| **Phase 1: Forest Trust** | 📖 [Federation Architecture](WIKI_HYBRID_IDENTITY) | 🛠️ [Trust Management Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/HYBRID_TRUST_MANAGEMENT.md) |
-| **Phase 1: Client Tuning** | 📖 [Authentication Workflows](WIKI_AUTHENTICATION_WORKFLOWS) | 🛠️ [SSSD Blueprints](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SSSD_TEMPLATES.md) |
+| **Phase 1: Strategy** | 📖 [Migration Strategy](WIKI_ENTERPRISE_MIGRATION.md) | 🛠️ [Installation Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/INSTALLATION_GUIDE.md) |
+| **Phase 1: Forest Trust** | 📖 [Federation Architecture](WIKI_HYBRID_IDENTITY.md) | 🛠️ [Trust Management Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/HYBRID_TRUST_MANAGEMENT.md) |
+| **Phase 1: Client Tuning** | 📖 [Authentication Workflows](WIKI_AUTHENTICATION_WORKFLOWS.md) | 🛠️ [SSSD Blueprints](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SSSD_TEMPLATES.md) |
 | **Phase 1: Hardening** | — | 🛠️ [Kerberos & KDC Policies](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/KERBEROS_LIFECYCLE.md) |
-| **Phase 1: Resilience** | 📖 [Replication Recovery Playbook](WIKI_DISASTER_RECOVERY) | — |
-| **Phase 2: AD Sunset** | — | 🛠️ [Samba 4 AD DC Implementation Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md) |
+| **Phase 1: Resilience** | 📖 [Replication Recovery Playbook](WIKI_DISASTER_RECOVERY.md) | 🛠️ [RHDS Advanced Replication Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/RHDS_ADVANCED_REPLICATION_GUIDE.md) |
+| **Phase 2: AD Sunset** | — | 🛠️ [Samba 4 AD DC Implementation Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md) <br> 🛠️ [Samba RPM Build Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SAMBA_RPM_BUILD_GUIDE.md) <br> 🔗 [`samba-rpm-build-rhel9` Repository](https://github.com/gennady73/samba-rpm-build-rhel9) |
