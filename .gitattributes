@@ -1,0 +1,7 @@
+# Shell scripts, specs and Containerfiles run inside Linux containers: keep LF
+* text=auto
+*.sh text eol=lf
+*.spec.in text eol=lf
+Containerfile.* text eol=lf
+*.rpm binary
+*.tar binary
