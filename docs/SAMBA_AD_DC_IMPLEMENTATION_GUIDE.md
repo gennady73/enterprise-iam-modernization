@@ -77,57 +77,95 @@ Backup-Gpo -All -Path "C:\GPO_Backups"
 Get-GPOReport -All -ReportType HTML -Path "C:\GPO_Backups\Production_GPO_Report.html"
 ```
 
+> **Lab-tested status (2026-10-13)**: Step 2 and the DC-side commands of Step 3 (item 6) were executed against `samba-ad-dc-4.24.7` in a UBI 9.7 container. Step 1, the Windows-side import (Step 3, items 1–5) and Step 4 need Windows hosts and have not yet been run. Earlier revisions of this section used `samba-tool gpo aclreset` (does not exist) and copied `Backup-GPO` folders straight into SysVol (Samba never registers them as GPOs).
+
+#### Choose the import path first
+
+| Path | When | Fidelity |
+| :--- | :--- | :--- |
+| **A. Clone** | Security allows restoring one production DC into the sealed sandbox VLAN | Highest: real GUIDs, SIDs, links, WMI filters. Also rehearses Track B |
+| **B. Fresh domain + `Import-GPO`** | No production data may leave production | Good for settings; group SIDs must be mapped with a migration table |
+
+Path A: restore a production DC from system-state backup into the sandbox, record `Get-ADForest`/`Get-ADDomain` functional levels, then `samba-tool domain join` it (Track B Step 2), copy SYSVOL, run `samba-tool ntacl sysvolreset`, transfer FSMO roles and shut the Windows DC down. Continue at Step 4.
+
+Path B follows below.
+
 ### Step 2: Standing Up the Sandbox Samba-AD DC
-On an isolated RHEL 9 / Rocky Linux 9 VM (`192.168.100.10`), install the pre-built RPM packages and provision a sandbox domain:
+On an isolated RHEL 9 / Rocky Linux 9 VM (`192.168.100.10`):
 
 ```bash
-# Install Samba AD DC RPMs via dnf
-sudo dnf install -y samba-ad-dc krb5-server bind bind-utils python3-dns python3-markdown
+# 1. Host identity: FQDN, hosts entry, time
+hostnamectl set-hostname dc1.sandbox.lab
+echo "192.168.100.10 dc1.sandbox.lab dc1" >> /etc/hosts
+dnf install -y chrony && systemctl enable --now chronyd
 
-# Clean existing configs
-rm -f /etc/samba/smb.conf /etc/krb5.conf
+# 2. Firewall (incl. dynamic RPC range used by GPMC and replication)
+firewall-cmd --permanent --add-service={dns,kerberos,kpasswd,ldap,ldaps,samba}
+firewall-cmd --permanent --add-port={135/tcp,3268/tcp,3269/tcp,49152-65535/tcp}
+firewall-cmd --reload
 
-# Provision sandbox domain
+# 3. Packages (samba-ad-dc RPM from samba-rpm-build-rhel9, or a maintained el9 Samba DC repo)
+dnf install -y ./samba-ad-dc-4.24.7-*.el9.x86_64.rpm krb5-workstation bind-utils
+
+# 4. Provision. Use a sandbox realm, never the production name, unless this is a sealed clone.
+rm -f /etc/samba/smb.conf
 samba-tool domain provision \
-    --server-role=dc \
-    --use-rfc2307 \
-    --dns-backend=BIND9_DLZ \
-    --realm=AD.COMPANY.COM \
-    --domain=AD \
-    --adminpass='PocP@ssw0rd2026!'
+    --server-role=dc --use-rfc2307 \
+    --dns-backend=SAMBA_INTERNAL \
+    --realm=SANDBOX.LAB --domain=SANDBOX \
+    --host-ip=192.168.100.10 \
+    --option="dns forwarder = 192.168.100.1" \
+    --adminpass='<sandbox-admin-password>'
 
-# Start services
+# 5. Kerberos and resolver point at the DC
 cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
-systemctl enable --now named samba
+nmcli con mod "$(nmcli -g NAME con show --active | head -1)" ipv4.dns 192.168.100.10 ipv4.ignore-auto-dns yes
+nmcli con up "$(nmcli -g NAME con show --active | head -1)"
+
+# 6. Start (requires samba.service in the RPM; older builds: run `samba -D`)
+systemctl enable --now samba
 ```
 
-### Step 3: Ingesting Production GPOs into Sandbox SysVol
-Copy the exported GPO folders (`{GUID}`) from `C:\GPO_Backups\` directly into the sandbox Samba `SysVol` path (`/var/lib/samba/sysvol/ad.company.com/Policies/`):
-
+Health gate (all must pass before Step 3):
 ```bash
-# Restore file ownership and apply NTACLs
-samba-tool gpo aclreset
-
-# Reload ADMX templates into SysVol
-samba-tool gpo admxload -U Administrator
+host -t SRV _ldap._tcp.dc._msdcs.sandbox.lab
+echo '<sandbox-admin-password>' | kinit administrator@SANDBOX.LAB && klist
+smbclient -L dc1.sandbox.lab --use-kerberos=required      # lists sysvol, netlogon
+samba-tool dbcheck --cross-ncs                             # 0 errors
 ```
+`SAMBA_INTERNAL` DNS is deliberate: Phase 0 tests Group Policy, not the DNS backend. Switch to BIND9 DLZ later with `samba_upgradedns --dns-backend=BIND9_DLZ` (Track A, section B).
+
+### Step 3: Importing Production GPOs into the Sandbox
+A GPO is two things that must match: a `groupPolicyContainer` object in LDAP and a SysVol folder named after its GUID. Copying `Backup-GPO` output into `Policies/` creates neither, and `samba-tool gpo restore` only reads backups written by `samba-tool gpo backup`. Import with the Windows tooling instead, from a sandbox-joined admin VM with RSAT Group Policy Management:
+
+1. **Central Store**: copy the production `PolicyDefinitions` folder (`\\<prod-dc>\SYSVOL\<prod-domain>\Policies\PolicyDefinitions`) to `\\dc1.sandbox.lab\SYSVOL\sandbox.lab\Policies\PolicyDefinitions`. Do **not** run `samba-tool gpo admxload` here: it installs Samba's Linux templates and GPMC then stops showing the Windows ones.
+2. **Principals**: create the sandbox groups and accounts that the GPOs reference (security filtering, User Rights, Restricted Groups, GPP).
+3. **Migration table**: in GPMC, *Open Migration Table Editor*, populate from the backups, map each production principal and UNC path to its sandbox equivalent, save as `C:\GPO_Backups\poc.migtable`.
+4. **Import and link** each GPO (PowerShell as sandbox Domain Admin):
+   ```powershell
+   $map = 'C:\GPO_Backups\poc.migtable'
+   Get-ChildItem C:\GPO_Backups -Directory | ForEach-Object {
+       $name = ([xml](Get-Content "$($_.FullName)\bkupInfo.xml")).BackupInst.GPODisplayName.'#cdata-section'
+       Import-GPO -BackupId $_.Name.Trim('{}') -Path C:\GPO_Backups -TargetName $name `
+                  -MigrationTable $map -CreateIfNeeded
+   }
+   New-GPLink -Name "<GPO name>" -Target "OU=Dev Workstations,DC=sandbox,DC=lab"
+   ```
+5. **WMI filters** are not part of `Backup-GPO`: export them from production (`Get-ADObject -Filter 'objectClass -eq "msWMI-Som"'`) and recreate them.
+6. **ACL check on the DC**:
+   ```bash
+   samba-tool gpo listall | grep -c '^GPO'     # one per imported GPO + 2 defaults
+   samba-tool ntacl sysvolcheck || samba-tool ntacl sysvolreset
+   ```
 
 ### Step 4: Verification & Audit Protocol on Test Windows Developer Workstation
-Join a test Windows developer workstation to the sandbox Samba AD DC and execute the verification sequence:
+Join a test Windows developer workstation to the sandbox domain, move it into the linked OU, then:
 
-1. **Force Policy Refresh**:
-   ```cmd
-   gpupdate /force
-   ```
-2. **Generate Resultant Set of Policy (RSOP) Report**:
-   ```cmd
-   gpresult /h C:\GPO_POC_Report.html /f
-   ```
-3. **Audit Windows Event Logs**:
-   Open Windows Event Viewer and inspect `Applications and Services Logs -> Microsoft -> Windows -> GroupPolicy -> Operational`:
-   * **Event ID 1500**: Group Policy preprocessing started successfully.
-   * **Event ID 1501**: Group Policy processing completed successfully with zero errors.
-   * **Event ID 7016/7017**: Confirm all Client-Side Extensions (Registry, Security, Administrative Templates) completed in under 1000ms.
+1. Write the list of GPOs under test, with an owner per GPO, **before** testing.
+2. `gpupdate /force`, then `gpresult /h C:\GPO_POC_Report.html /f`.
+3. Compare each GPO's applied settings in the report against its section of `Production_GPO_Report.html`.
+4. Event Viewer: no Error or Warning events in `Applications and Services Logs -> Microsoft -> Windows -> GroupPolicy -> Operational`; in the **System** log, event 1502 (computer policy) and 1503 (user policy) report success.
+5. **Go** = every listed GPO applied with matching settings. Anything else is recorded as a named gap with an owner, not a pass.
 
 ---
 
@@ -148,19 +186,27 @@ firewall-cmd --reload
 ```
 
 ### B. BIND9 DLZ Dynamic DNS Configuration
-Configure BIND9 (`named`) to use Samba's Dynamic Loadable Zones (DLZ) module (`/etc/named.conf`):
+RHEL 9 ships BIND 9.16, so Samba's `dlz_bind9_16.so` module is required. Provisioning writes `/var/lib/samba/bind-dns/named.conf`; uncomment the 9.16 line in it and include that file from `/etc/named.conf` (tested with BIND 9.16.23 on UBI 9.7: `named-checkconf` passes and BIND serves the AD SRV records). BIND's `plugin { }` statement is for query plugins and is a syntax error here.
+
+```bash
+# After provisioning with --dns-backend=BIND9_DLZ (section C):
+sed -i 's|^\(\s*\)# \(database "dlopen .*dlz_bind9_16.so";\)|\1\2|' /var/lib/samba/bind-dns/named.conf
+chgrp -R named /var/lib/samba/bind-dns && chmod -R g+rX /var/lib/samba/bind-dns
+```
+
+`/etc/named.conf`:
 ```bind
 options {
     directory "/var/named";
-    dump-file "/var/named/data/cache_dump.db";
+    listen-on port 53 { 192.168.1.10; 127.0.0.1; };
+    allow-query { any; };
+    forwarders { 192.168.1.1; };
     tkey-gssapi-keytab "/var/lib/samba/bind-dns/dns.keytab";
     minimal-responses yes;
 };
-
-plugin {
-    file "/usr/lib64/samba/bind9/dlz_bind9_12.so";
-};
+include "/var/lib/samba/bind-dns/named.conf";
 ```
+Module path: `/usr/lib/samba/bind9/` for the current `samba-ad-dc` 4.24.7-1 RPM, `/usr/lib64/samba/bind9/` for builds from the corrected spec (Release 2+). The generated file always holds the right path.
 
 ### C. Provisioning the Domain
 ```bash
@@ -174,7 +220,8 @@ samba-tool domain provision \
     --adminpass='SecureP@ssw0rd2026!'
 
 cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
-systemctl enable --now named samba
+# apply section B to named.conf, then:
+named-checkconf && systemctl enable --now named samba
 ```
 
 ---
@@ -197,7 +244,7 @@ Follow this track when migrating an existing Active Directory domain from Micros
 ### Step 1: Pre-Migration Discovery & Health Audits
 ```powershell
 # Run from Windows PowerShell as Domain Admin
-Get-ADDomainController -Filter * | Select-Name, IPv4Address, OperatingSystem
+Get-ADDomainController -Filter * | Select-Object Name, IPv4Address, OperatingSystem
 netdom query fsmo
 dcdiag /test:DNS /v
 ```

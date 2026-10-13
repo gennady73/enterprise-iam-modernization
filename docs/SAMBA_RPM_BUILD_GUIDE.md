@@ -7,10 +7,11 @@ The custom RPM build toolchain, containerized compilation scripts, and UBI 9 ver
 ---
 
 ### Key Highlights of the Standalone Repository:
-* **RHEL 9 System MIT Kerberos Integration**: Complete build configurations (`./configure --with-system-mitkrb5 --with-experimental-mit-ad-dc`) tailored specifically for Red Hat Enterprise Linux 9 and derivatives.
-* **Pre-Built RPM Binaries**: Includes pre-compiled `samba-ad-dc-4.24.7-1.el9.x86_64.rpm` under the `/rpm` directory for instant testing and evaluation.
-* **UBI 9 Container Toolchain**: Clean build and test containers (`Containerfile.samba-build` & `Containerfile.samba-test`) supporting Red Hat Subscription Manager (`--build-arg RH_USER` / `--build-arg RH_PASS`).
-* **Automated Smoke Test Harness**: `scripts/test-samba-rpm.sh` featuring GNU-style `--argname=value` CLI options, built-in `--help`, and container isolation bypass flags (`--privileged --tmpfs /var/lib/samba`) for zero-panic domain provisioning.
+* **RHEL 9 System MIT Kerberos Build**: `./configure --with-system-mitkrb5 --with-experimental-mit-ad-dc`. Samba upstream classifies this mode as experimental and issues no security fixes for it.
+* **Self-contained spec**: `rpmbuild -ba` compiles from `Source0`, installs to `/usr/lib64`, ships `samba.service` and tmpfiles, and generates its dependencies automatically. The resulting SRPM rebuilds on its own.
+* **UBI 9 Container Toolchain**: `Containerfile.samba-build` and `Containerfile.samba-test`. Credentials come from a registered RHEL host or `podman build --secret`, never from `--build-arg`.
+* **Runtime Test Harness**: `scripts/test-samba-rpm.sh` runs `scripts/runtime-gates.sh` in a privileged UBI 9 container: install, packaging checks, provisioning, MIT KDC, Kerberos, LDAP, SMB, DNS, GPO create/backup/restore and BIND 9.16 DLZ.
+* **Conflicts with RHEL client packages**: the single `samba-ad-dc` package replaces `samba-client-libs`, `libwbclient`, `python3-samba` and related packages; it cannot be co-installed with them.
 
 For the latest source code, build scripts, release notes, and operational guides, visit:  
 🔗 **[gennady73/samba-rpm-build-rhel9](https://github.com/gennady73/samba-rpm-build-rhel9)**
