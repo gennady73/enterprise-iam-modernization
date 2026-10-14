@@ -51,12 +51,13 @@ Our blueprint decouples secure infrastructure-level OS accounts from application
 
 ---
 
-### 📍 Step 0: Phase 0 Isolated POC Sandbox & Complex GPO Validation Gate
-*   **Objective**: Prove in an isolated sandbox environment that Samba 4 AD DC ingests, serves, and enforces our enterprise's most complex Windows GPOs—specifically those governing low-level Windows developer workstations—with 100% fidelity before touching production.
-*   **The Technical Concept**: 
-    Deploy an isolated test Samba 4 AD DC (`BIND9_DLZ`) in a sandbox VLAN. Export production GPOs and copy the raw policy hives into Samba's `SysVol` (`/var/lib/samba/sysvol/`). Join a test Windows developer workstation and run `gpupdate /force` and `gpresult /h` to verify that all Client-Side Extensions (CSEs) execute without error (Event ID 1501).
-*   **Aha! Moment (Zero Translation Required)**:
-    We confirmed that Samba AD DC acts purely as an SMB3 file share and LDAP directory. It performs **zero translation** of Windows policies. The Windows client OS downloads the raw `Registry.pol` files over SMB3 and applies them locally using its own internal CSEs. Complex GPOs apply identically whether served by Windows Server or Samba AD DC.
+### 📍 Step 0: Phase 0 POC & Complex GPO Validation Gate
+*   **Objective**: Prove, before any migration, that a Samba 4 AD domain controller serves our most complex Windows GPOs (especially those for low-level Windows developer workstations) and that a real workstation applies them without error.
+*   **The Technical Concept**:
+    A RHEL 9 VM becomes the domain controller of a new domain (`mydomain2.com`) beside the existing AD (`mydomain.com`), which is only read. GPOs under test are exported with `Backup-GPO`, imported into the Samba domain and their group SIDs mapped. One workstation leaves `mydomain.com`, joins `mydomain2.com`, and a script checks RSoP, every policy registry value and the Group Policy event logs. Every step is scripted with pass/fail checks in [`scripts/phase0/`](https://github.com/gennady73/enterprise-iam-modernization/tree/main/scripts/phase0).
+*   **Why it works (Zero Translation)**:
+    Samba AD DC acts as an LDAP directory and SMB file server and does not translate Windows policies. The Windows client downloads the policy files (`Registry.pol`, `GptTmpl.inf`, preferences) over SMB and applies them with its own Client-Side Extensions. This is the hypothesis Phase 0 tests, not a result yet.
+*   **Implementation Guide**: [Samba 4 AD DC Implementation Guide — Phase 0](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md#phase-0-the-isolated-poc--complex-gpo-validation-gate-mandatory-gono-go)
 
 ---
 
@@ -125,7 +126,7 @@ Our blueprint decouples secure infrastructure-level OS accounts from application
 
 | Phase / Focus Area | Strategic Wiki Resource | Technical Repository Code-Adjacent Resource |
 | :--- | :--- | :--- |
-| **Phase 0: Sandbox POC** | — | 🛠️ [Samba 4 AD DC Implementation Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md) |
+| **Phase 0: GPO Validation Gate** | — | 🛠️ [Samba 4 AD DC Implementation Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SAMBA_AD_DC_IMPLEMENTATION_GUIDE.md) |
 | **Phase 1: Strategy** | 📖 [Migration Strategy](WIKI_ENTERPRISE_MIGRATION.md) | 🛠️ [Installation Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/INSTALLATION_GUIDE.md) |
 | **Phase 1: Forest Trust** | 📖 [Federation Architecture](WIKI_HYBRID_IDENTITY.md) | 🛠️ [Trust Management Guide](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/HYBRID_TRUST_MANAGEMENT.md) |
 | **Phase 1: Client Tuning** | 📖 [Authentication Workflows](WIKI_AUTHENTICATION_WORKFLOWS.md) | 🛠️ [SSSD Blueprints](https://github.com/gennady73/enterprise-iam-modernization/blob/main/docs/SSSD_TEMPLATES.md) |

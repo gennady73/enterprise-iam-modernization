@@ -45,127 +45,168 @@ This implementation guide assumes that pre-compiled, verified **Samba 4 AD DC RP
 
 ## Phase 0: The Isolated POC & Complex GPO Validation Gate (Mandatory Go/No-Go)
 
-The non-negotiable **Phase 0 Gate** requires standing up an isolated sandbox environment to prove that Samba 4 AD DC ingests, serves, and enforces our enterprise's most complex existing Windows GPOs—especially those required for Windows internals/kernel developers—without error.
+Phase 0 proves, before any migration, that a Samba AD domain controller serves our most complex Windows GPOs (above all those for Windows internals / kernel developers) and that a real Windows workstation applies them without error.
+
+It does this in the dev environment with a **second domain**: a RHEL 9 VM becomes the domain controller of a new domain (`mydomain2.com` in the examples); the GPOs under test are exported from the existing domain (`mydomain.com`) and imported into it; one existing workstation moves from `mydomain.com` to `mydomain2.com` and is measured.
 
 ```text
-                      PHASE 0 POC SANDBOX ARCHITECTURE
-                      
-  +-------------------------------------------------------------------+
-  | ISOLATED SANDBOX VLAN (No Route to Production AD)                 |
-  |                                                                   |
-  |  [ Prod AD GPO Backup ] ===( Import )===> [ Test Samba-AD DC ]   |
-  |                                                (SysVol / BIND9)   |
-  |                                                       ||          |
-  |                                                (SMB3 / LDAP)      |
-  |                                                       vv          |
-  |                                            [ Test Windows Dev WS ] |
-  |                                            (Evaluates GPOs 100%)  |
-  +-------------------------------------------------------------------+
+   mydomain.com (existing AD, read only)             mydomain2.com (new, Samba)
+  +------------------------------------+          +------------------------------------+
+  |  Windows DC                        |  Backup  |  RHEL 9 VM = Samba AD DC           |
+  |  GPOs under test --(Export, Step 1)|--------->|  (Steps 2-3: provision, import,    |
+  |                                    |   scp    |   map principals)                  |
+  |  Workstation (member) -------------|--------->|  Workstation (member, Step 4)      |
+  |                     leaves (pass 1)|  moves   |  joins (pass 2), Go/No-Go check    |
+  +------------------------------------+          +------------------------------------+
 ```
 
-### Step 1: Exporting Complex GPOs from Production Active Directory
-On a production Windows Domain Controller, export active Group Policy Objects using PowerShell:
+The RHEL 9 VM becomes a **domain controller**, not a member server: a member server joins someone else's domain, while a domain controller hosts its own domain, its directory, Kerberos, DNS and the SysVol share that serves GPOs. `mydomain.com` is not changed, apart from the moved workstation's computer account being disabled.
+
+### What you need
+
+| Machine | State | Role in Phase 0 |
+| :--- | :--- | :--- |
+| `mydomain.com` domain controller | running | Source of the GPOs under test. Only read. |
+| Admin PC with RSAT Group Policy Management | running, member of `mydomain.com` | Runs the export (Step 1) |
+| **Samba VM**: RHEL 9, subscribed, static IPv4, ≥ 2 GB RAM | running, **not configured** | Becomes the `mydomain2.com` domain controller (Steps 2–3) |
+| **Workstation**: Windows 10/11 Pro or Enterprise | running, member of `mydomain.com` | Moves to `mydomain2.com` and is measured (Step 4). Snapshot or back it up first. |
+| `samba-ad-dc` RPM | built with [samba-rpm-build-rhel9](https://github.com/gennady73/samba-rpm-build-rhel9) | Copied to the Samba VM |
+
+Naming rules for the new domain: a DNS name you control (not a public name owned by someone else), **not** a subdomain of `mydomain.com`, NetBIOS name (`MYDOMAIN2`) different from the source domain's and at most 15 characters.
+
+All scripts are in [`scripts/phase0/`](../scripts/phase0/). Every step ends with checks that print `[PASS]`/`[FAIL]` and exit non-zero on failure: do not continue past a failed step.
+
+> **Verification status (2026-10-14).** Steps 2 and 3 (`01`–`06` scripts) were run end-to-end against `samba-ad-dc-4.24.7-2.el9` with RHEL 9 runtime libraries for realm `MYDOMAIN2.COM`, using sample `Backup-GPO` folders: all checks passed, imported files were byte-identical in SysVol, source SIDs were rewritten, and an ordinary domain user could read the GPO files over SMB. Not yet run on a real RHEL 9 VM: the `dnf`, `firewalld`, `chronyd`, SELinux and NetworkManager parts of `01-prepare-host.sh`. The Windows scripts were parse-checked and their logic unit-tested in PowerShell 7, but have not yet run on Windows.
+
+### Step 1: Export the GPOs under test (admin PC, `mydomain.com`)
+
+Choose the GPOs that must work and write their names down: this list is what Step 4 judges.
 
 ```powershell
-# Create backup directory
-New-Item -ItemType Directory -Path "C:\GPO_Backups"
-
-# Backup all GPOs including security descriptors and WMI filters
-Backup-Gpo -All -Path "C:\GPO_Backups"
-
-# Export GPO report in HTML for baseline verification
-Get-GPOReport -All -ReportType HTML -Path "C:\GPO_Backups\Production_GPO_Report.html"
+# Copy scripts\phase0\windows\ to the admin PC, then in PowerShell:
+.\Export-Phase0Gpos.ps1 -Name 'Dev Workstation Baseline','Kernel Debug Policy' -Path C:\GPO_Backups
+scp -r C:\GPO_Backups root@<samba-vm>:/root/
 ```
 
-> **Lab-tested status (2026-10-13)**: Step 2 and the DC-side commands of Step 3 (item 6) were executed against `samba-ad-dc-4.24.7` in a UBI 9.7 container. Step 1, the Windows-side import (Step 3, items 1–5) and Step 4 need Windows hosts and have not yet been run. Earlier revisions of this section used `samba-tool gpo aclreset` (does not exist) and copied `Backup-GPO` folders straight into SysVol (Samba never registers them as GPOs).
+**Check:** `C:\GPO_Backups\manifest.csv` lists every GPO with its links and WMI filter; `reports\` holds one HTML/XML report per GPO (the baseline for Step 4).
 
-#### Choose the import path first
+Also note the SIDs of the `mydomain.com` groups the GPOs name (User Rights, Restricted Groups, preference targeting), for Step 3b: `(Get-ADGroup 'Kernel Developers').SID.Value`.
 
-| Path | When | Fidelity |
+### Step 2: Make the Samba VM the `mydomain2.com` domain controller
+
+Copy `scripts/phase0/` and the RPM to the VM (for example to `/root/phase0/`), then as root:
+
+```bash
+cd /root/phase0
+cp phase0.env.example phase0.env && chmod 600 phase0.env
+vi phase0.env               # REALM=MYDOMAIN2.COM, DOMAIN=MYDOMAIN2, DC_HOSTNAME, DC_IP,
+                            # DNS_FORWARDER (a mydomain.com DNS server), SAMBA_RPM, TARGET_OU
+
+./01-prepare-host.sh        # host name, /etc/hosts, chrony, firewall, SELinux, installs the RPM
+./02-provision-dc.sh        # asks for the new Administrator password, creates the domain,
+                            # starts samba, points the VM's DNS at itself, runs 03-check-dc.sh
+```
+
+If `01-prepare-host.sh` stops on package conflicts (`samba-client-libs`, `sssd-ad`, …), the VM has RHEL's own Samba client packages. A DC must not run SSSD: re-run with `./01-prepare-host.sh --allow-erase`.
+
+**`smb.conf` is generated, not written by hand.** `samba-tool domain provision` (run by `02-provision-dc.sh`) writes `/etc/samba/smb.conf` from `phase0.env`; the script prints it and keeps a copy as `smb.conf.provisioned`. For the example values it is:
+
+```ini
+[global]
+	bind interfaces only = Yes
+	dns forwarder = 192.168.100.1
+	interfaces = 192.168.100.10 lo
+	netbios name = DC1
+	realm = MYDOMAIN2.COM
+	server role = active directory domain controller
+	workgroup = MYDOMAIN2
+	idmap_ldb:use rfc2307 = yes
+
+[sysvol]
+	path = /var/lib/samba/sysvol
+	read only = No
+
+[netlogon]
+	path = /var/lib/samba/sysvol/mydomain2.com/scripts
+	read only = No
+```
+
+`server role = active directory domain controller` is what makes this a DC. The DC's IP must be the first entry of `interfaces`: with the MIT Kerberos KDC, the password-change service (port 464) listens only on the first interface. Do not add member-server settings (`security =`, `idmap config …`, `passdb backend`, `winbind …`) found in many guides: they break a DC, and `03-check-dc.sh` fails if it finds them.
+
+**Check:** `02-provision-dc.sh` ends with `RESULT: all checks passed` from `03-check-dc.sh`: `smb.conf` loads, has the DC role, the right realm and no member-server settings; samba and the MIT KDC run; ports 53, 88, 135, 389, 445, 464, 636 and 3268 answer on `DC_IP`; the DC's DNS serves its SRV records; Kerberos, LDAP and SMB (`sysvol`, `netlogon`) work; `dbcheck` and `sysvolcheck` are clean. Re-run `./03-check-dc.sh` at any time.
+
+### Step 3: Import the GPOs (Samba VM)
+
+**3a. Import**
+
+```bash
+./04-import-gpos.sh /root/GPO_Backups
+```
+
+Creates each GPO under its original name, uploads its `DomainSysvol\GPO` content (Administrative Templates, security settings, scripts, preferences) byte-for-byte, sets the client-side extension list, raises the version so clients apply it, links it to `TARGET_OU` and resets SysVol ACLs. Safe to re-run: existing GPOs are skipped. It prints `REVIEW:` lines for content tied to `mydomain.com`.
+
+**3b. Users, groups and SID mapping**
+
+```bash
+cp principals.csv.example principals.csv && vi principals.csv
+./06-map-principals.sh
+```
+
+Each row creates a `mydomain2.com` user or group. A row with `source_sid` (a `mydomain.com` SID from a `REVIEW:` line) also rewrites that SID, wherever it appears in the imported GPO files, to the new group's SID, and raises those GPOs' versions: the job a GPMC migration table does. The step fails while any `mydomain.com` SID is left (`UNMAPPED:` lines): add a row for it, or remove that setting in GPMC.
+
+The other `REVIEW:` lines:
+
+| `REVIEW:` line | What to do |
+| :--- | :--- |
+| `UNC path \\server\share` | The path must resolve and be reachable from the workstation once it is in `mydomain2.com` (with `DNS_FORWARDER` pointing at `mydomain.com` DNS, `mydomain.com` names resolve; access rights on the share are still `mydomain.com`'s). |
+| `WMI filter in source GPO` | WMI filters are not in `Backup-GPO` output. Re-create the filter in GPMC against `mydomain2.com` and attach it. |
+
+Security filtering (who a GPO applies to) is not imported: each imported GPO applies to Authenticated Users in the OU.
+
+**3c. Check**
+
+```bash
+./05-check-gpos.sh
+```
+
+**Check:** every GPO has matching LDAP and `GPT.INI` versions, content implies registered extensions, the GPOs are linked to `TARGET_OU`, `sysvolcheck` is clean.
+
+Do not run `samba-tool gpo admxload` for Phase 0: it puts Samba's Linux templates into the Central Store and GPMC then hides the Windows templates.
+
+### Step 4: Move the workstation and decide Go / No-Go
+
+**Before:** snapshot or back up the workstation; make sure a local administrator account is enabled and its password is known (with LAPS, read it from `mydomain.com` first). After the workstation leaves `mydomain.com`, that account is the only way to log on.
+
+**What changes for users:** `mydomain.com` accounts can no longer log on to this workstation. A `mydomain2.com` user gets a **new** Windows profile; the old profile stays on disk unused. Machine certificates, BitLocker key escrow in `mydomain.com` and management agents (SCCM/Intune) stay tied to the old domain.
+
+Copy `scripts\phase0\windows\` and `C:\GPO_Backups` to the workstation, then elevated, twice (the same command for both passes):
+
+```powershell
+.\Move-WorkstationToSamba.ps1 -DomainName mydomain2.com -DcIp 192.168.100.10 `
+    -OUPath 'OU=Dev Workstations,DC=mydomain2,DC=com' -LocalAdmin Administrator `
+    -SourceCredential (Get-Credential MYDOMAIN\admin)
+```
+
+| Pass | Computer state | What happens |
 | :--- | :--- | :--- |
-| **A. Clone** | Security allows restoring one production DC into the sealed sandbox VLAN | Highest: real GUIDs, SIDs, links, WMI filters. Also rehearses Track B |
-| **B. Fresh domain + `Import-GPO`** | No production data may leave production | Good for settings; group SIDs must be mapped with a migration table |
+| 1 | member of `mydomain.com` | Checks the local admin account; saves rollback data (old domain, DNS servers, BitLocker recovery keys) to `C:\Phase0_Rollback` — copy it off the machine; leaves `mydomain.com` (its computer account is disabled); restarts. |
+| 2 | workgroup; log on as `.\Administrator` | Points DNS at the Samba DC; checks SRV records, ports 88/135/389/445/464 and clock; joins `mydomain2.com` into `OU=Dev Workstations`; restarts. |
 
-Path A: restore a production DC from system-state backup into the sandbox, record `Get-ADForest`/`Get-ADDomain` functional levels, then `samba-tool domain join` it (Track B Step 2), copy SYSVOL, run `samba-tool ntacl sysvolreset`, transfer FSMO roles and shut the Windows DC down. Continue at Step 4.
+Then log on to the workstation as a `mydomain2.com` test user (e.g. `MYDOMAIN2\devuser` from `principals.csv`) once and keep the session open. From an elevated PowerShell running as `MYDOMAIN2\Administrator`:
 
-Path B follows below.
-
-### Step 2: Standing Up the Sandbox Samba-AD DC
-On an isolated RHEL 9 / Rocky Linux 9 VM (`192.168.100.10`):
-
-```bash
-# 1. Host identity: FQDN, hosts entry, time
-hostnamectl set-hostname dc1.sandbox.lab
-echo "192.168.100.10 dc1.sandbox.lab dc1" >> /etc/hosts
-dnf install -y chrony && systemctl enable --now chronyd
-
-# 2. Firewall (incl. dynamic RPC range used by GPMC and replication)
-firewall-cmd --permanent --add-service={dns,kerberos,kpasswd,ldap,ldaps,samba}
-firewall-cmd --permanent --add-port={135/tcp,3268/tcp,3269/tcp,49152-65535/tcp}
-firewall-cmd --reload
-
-# 3. Packages (samba-ad-dc RPM from samba-rpm-build-rhel9, or a maintained el9 Samba DC repo)
-dnf install -y ./samba-ad-dc-4.24.7-*.el9.x86_64.rpm krb5-workstation bind-utils
-
-# 4. Provision. Use a sandbox realm, never the production name, unless this is a sealed clone.
-rm -f /etc/samba/smb.conf
-samba-tool domain provision \
-    --server-role=dc --use-rfc2307 \
-    --dns-backend=SAMBA_INTERNAL \
-    --realm=SANDBOX.LAB --domain=SANDBOX \
-    --host-ip=192.168.100.10 \
-    --option="dns forwarder = 192.168.100.1" \
-    --adminpass='<sandbox-admin-password>'
-
-# 5. Kerberos and resolver point at the DC
-cp /var/lib/samba/private/krb5.conf /etc/krb5.conf
-nmcli con mod "$(nmcli -g NAME con show --active | head -1)" ipv4.dns 192.168.100.10 ipv4.ignore-auto-dns yes
-nmcli con up "$(nmcli -g NAME con show --active | head -1)"
-
-# 6. Start (requires samba.service in the RPM; older builds: run `samba -D`)
-systemctl enable --now samba
+```powershell
+.\Test-Phase0Workstation.ps1 -BackupPath C:\GPO_Backups -TestUser 'MYDOMAIN2\devuser'
 ```
 
-Health gate (all must pass before Step 3):
-```bash
-host -t SRV _ldap._tcp.dc._msdcs.sandbox.lab
-echo '<sandbox-admin-password>' | kinit administrator@SANDBOX.LAB && klist
-smbclient -L dc1.sandbox.lab --use-kerberos=required      # lists sysvol, netlogon
-samba-tool dbcheck --cross-ncs                             # 0 errors
-```
-`SAMBA_INTERNAL` DNS is deliberate: Phase 0 tests Group Policy, not the DNS backend. Switch to BIND9 DLZ later with `samba_upgradedns --dns-backend=BIND9_DLZ` (Track A, section B).
+It refreshes computer policy and collects RSoP, then checks:
+1. Each GPO under test is applied for computer and/or user: not filtered, not denied.
+2. Every Administrative Templates value in each GPO's `Registry.pol` is present in `HKLM` or the test user's hive, with the same data.
+3. Every client-side extension finished with error 0.
+4. The GroupPolicy Operational log holds no errors or warnings since the refresh, and System event 1502 is present.
 
-### Step 3: Importing Production GPOs into the Sandbox
-A GPO is two things that must match: a `groupPolicyContainer` object in LDAP and a SysVol folder named after its GUID. Copying `Backup-GPO` output into `Policies/` creates neither, and `samba-tool gpo restore` only reads backups written by `samba-tool gpo backup`. Import with the Windows tooling instead, from a sandbox-joined admin VM with RSAT Group Policy Management:
+**Go** = `GO: all Phase 0 checks passed` for the GPO list from Step 1. Anything else is **No-Go**: `C:\Phase0_Results\results.csv` names each failing GPO and value, and `rsop.html` is the full RSoP report. For settings that are not registry values (security settings, preferences), compare `rsop.html` with the Step 1 baseline `reports\<name>.html`.
 
-1. **Central Store**: copy the production `PolicyDefinitions` folder (`\\<prod-dc>\SYSVOL\<prod-domain>\Policies\PolicyDefinitions`) to `\\dc1.sandbox.lab\SYSVOL\sandbox.lab\Policies\PolicyDefinitions`. Do **not** run `samba-tool gpo admxload` here: it installs Samba's Linux templates and GPMC then stops showing the Windows ones.
-2. **Principals**: create the sandbox groups and accounts that the GPOs reference (security filtering, User Rights, Restricted Groups, GPP).
-3. **Migration table**: in GPMC, *Open Migration Table Editor*, populate from the backups, map each production principal and UNC path to its sandbox equivalent, save as `C:\GPO_Backups\poc.migtable`.
-4. **Import and link** each GPO (PowerShell as sandbox Domain Admin):
-   ```powershell
-   $map = 'C:\GPO_Backups\poc.migtable'
-   Get-ChildItem C:\GPO_Backups -Directory | ForEach-Object {
-       $name = ([xml](Get-Content "$($_.FullName)\bkupInfo.xml")).BackupInst.GPODisplayName.'#cdata-section'
-       Import-GPO -BackupId $_.Name.Trim('{}') -Path C:\GPO_Backups -TargetName $name `
-                  -MigrationTable $map -CreateIfNeeded
-   }
-   New-GPLink -Name "<GPO name>" -Target "OU=Dev Workstations,DC=sandbox,DC=lab"
-   ```
-5. **WMI filters** are not part of `Backup-GPO`: export them from production (`Get-ADObject -Filter 'objectClass -eq "msWMI-Som"'`) and recreate them.
-6. **ACL check on the DC**:
-   ```bash
-   samba-tool gpo listall | grep -c '^GPO'     # one per imported GPO + 2 defaults
-   samba-tool ntacl sysvolcheck || samba-tool ntacl sysvolreset
-   ```
-
-### Step 4: Verification & Audit Protocol on Test Windows Developer Workstation
-Join a test Windows developer workstation to the sandbox domain, move it into the linked OU, then:
-
-1. Write the list of GPOs under test, with an owner per GPO, **before** testing.
-2. `gpupdate /force`, then `gpresult /h C:\GPO_POC_Report.html /f`.
-3. Compare each GPO's applied settings in the report against its section of `Production_GPO_Report.html`.
-4. Event Viewer: no Error or Warning events in `Applications and Services Logs -> Microsoft -> Windows -> GroupPolicy -> Operational`; in the **System** log, event 1502 (computer policy) and 1503 (user policy) report success.
-5. **Go** = every listed GPO applied with matching settings. Anything else is recorded as a named gap with an owner, not a pass.
+**Rollback:** `.\Restore-WorkstationDomain.ps1`, run twice the same way: pass 1 leaves `mydomain2.com`, pass 2 restores the saved DNS servers and rejoins `mydomain.com`. Users get their original profiles back.
 
 ---
 

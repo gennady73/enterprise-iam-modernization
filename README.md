@@ -38,10 +38,10 @@ The target architecture decouples secure infrastructure-level accounts from appl
 
 To avoid "synchronization hell" (fragile LDAP synchronization pipelines, password interceptor DLLs, and LSASS instability), this project implements a **POC-Validated Scaffolded Sunset** strategy.
 
-### Phase 0: Isolated POC Sandbox & Complex GPO Validation Gate (Mandatory Gate)
-*   **Sandbox Isolation**: Stand up an isolated test Samba 4 AD DC (`BIND9_DLZ`) in a sandbox VLAN with zero route to production AD.
-*   **GPO Ingestion**: Export production GPOs and ingest them into the sandbox Samba `SysVol` (`/var/lib/samba/sysvol/`).
-*   **Developer Workstation Benchmark**: Validate that complex GPOs (including those required for Windows internals/kernel developers) parse and apply 100% cleanly on test Windows workstations (`gpresult /h`, Event ID 1501).
+### Phase 0: POC & Complex GPO Validation Gate (Mandatory Gate)
+*   **Second domain**: A RHEL 9 VM becomes the Samba AD domain controller of a new domain (e.g. `mydomain2.com`) next to the existing AD (`mydomain.com`), which is only read.
+*   **GPO Import**: GPOs under test are exported with `Backup-GPO`, imported into the Samba domain and their source-domain SIDs mapped to new groups (scripted in `scripts/phase0/`).
+*   **Workstation Go/No-Go**: One workstation moves to the new domain; a script checks that every GPO applies, every policy value lands in the registry and the Group Policy logs are clean.
 
 ### Phase 1: The Dual-Core Scaffold (Coexistence)
 *   **The AD Core**: Retain a minimal, low-cost Microsoft AD footprint (or Samba AD DC) to natively manage Windows clients.
@@ -73,7 +73,8 @@ This repository is structured to serve as both an architectural guide and an aut
 ├── scripts/                          # Custom automated backup/restore/trust scripts
 │   ├── ds389-backup-manager.sh       # Non-disruptive hot backup utility
 │   ├── ds389-restore-manager.sh      # Physical and logical database recovery utility
-│   └── setup-ssh-trust.sh            # One-pass key propagation engine
+│   ├── setup-ssh-trust.sh            # One-pass key propagation engine
+│   └── phase0/                       # Phase 0 sandbox Samba DC + GPO Go/No-Go scripts (bash + PowerShell)
 └── docs/                             # Code-locked Technical Guides
     ├── INSTALLATION_GUIDE.md         # Standard OS setup, Satellite, and umask configs
     ├── HYBRID_TRUST_MANAGEMENT.md    # AD Trust playbooks, Samba configs, RPC port mappings

@@ -5,3 +5,6 @@
 Containerfile.* text eol=lf
 *.rpm binary
 *.tar binary
+# Phase 0 files are copied to RHEL as-is (env, csv, py): always LF
+scripts/phase0/** text eol=lf
+scripts/phase0/windows/** text eol=crlf

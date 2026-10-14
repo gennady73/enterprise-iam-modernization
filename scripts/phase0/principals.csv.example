@@ -1,0 +1,16 @@
+# Principals for the new domain, used by 06-map-principals.sh.
+# Copy to principals.csv and edit. One row per user or group; no spaces around commas.
+#
+# kind      user | group
+# name      sAMAccountName in the new domain (e.g. devuser, Kernel Developers)
+# source_sid  optional: SID of the matching principal in the SOURCE domain, as
+#             printed on 04-import-gpos.sh "REVIEW: source-domain SID" lines.
+#             Find it on the source domain with:
+#               (Get-ADGroup 'Kernel Developers').SID.Value
+# members   groups only: new-domain users, separated by ';'
+# password  users only: optional; a random one is generated and printed if empty
+#
+kind,name,source_sid,members,password
+user,devuser,,,
+user,devlead,,,
+group,Kernel Developers,S-1-5-21-1111111111-2222222222-3333333333-1105,devuser;devlead,
